@@ -1,0 +1,1787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DATABROKER.exe</title>
+  <link rel="stylesheet" href="aether-core.css">
+  <style>
+/* ── Design Tokens (aligned to Aether Core) ───────────────────────── */
+:root {
+  --bg:           var(--bg-obsidian);
+  --panel:        rgba(15, 23, 42, 0.94);
+  --panel-alt:    rgba(9, 13, 22, 0.90);
+  --border:       rgba(56, 189, 248, 0.18);
+  --border-dim:   rgba(56, 189, 248, 0.07);
+  --border-purp:  rgba(56, 189, 248, 0.22);
+
+  --cyan:         var(--accent-cyan);
+  --cyan-glow:    rgba(56, 189, 248, 0.28);
+  --purple:       var(--accent-cyan);
+  --purple-glow:  rgba(56, 189, 248, 0.28);
+  --pink:         var(--accent-cyan);
+  --green:        var(--status-stable);
+  --green-glow:   rgba(52, 211, 153, 0.28);
+  --red:          var(--status-emergency);
+  --red-glow:     rgba(239, 68, 68, 0.28);
+  --yellow:       var(--status-scanning);
+  --yellow-glow:  rgba(251, 191, 36, 0.28);
+  --orange:       #f97316;
+  --blue:         var(--accent-cyan);
+
+  --text:         var(--text-primary);
+  --dim:          #334155;
+  --dim-text:     var(--text-muted);
+  --font:         var(--font-mono);
+
+  --s1: var(--accent-cyan);
+  --s2: var(--accent-cyan);
+  --s3: var(--status-stable);
+  --s4: var(--text-muted);
+  --s5: var(--status-scanning);
+  --s6: #f97316;
+}
+
+/* ── Reset ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  overflow-x: hidden;
+  font-size: 13px;
+}
+body {
+  background: radial-gradient(ellipse at 25% 35%, #18094e 0%, #0d0320 45%, #060310 100%);
+  min-height: 100vh;
+}
+
+/* ── Three.js Canvas (subtle pixel-art texture, behind ocean) ──────── */
+#bg-canvas {
+  position: fixed; inset: 0;
+  z-index: 0;
+  opacity: 0.12;          /* pushed way back — texture only */
+  image-rendering: pixelated;
+}
+
+/* ── App Shell ─────────────────────────────────────────────────────── */
+#app {
+  position: relative; z-index: 2;   /* above ocean canvas (z:1) */
+  display: flex; flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ── Header ────────────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  background: rgba(6, 3, 16, 0.82);
+  border-bottom: 1px solid var(--border-purp);
+  position: sticky; top: 0; z-index: 20;
+  backdrop-filter: blur(8px);
+}
+
+.header-left { display: flex; align-items: center; gap: 18px; }
+
+.title-exe {
+  font-size: 15px; font-weight: 700; letter-spacing: 1px;
+  background: linear-gradient(90deg, var(--cyan) 0%, var(--purple) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 0 10px rgba(0,200,255,0.4));
+}
+
+.header-tabs { display: flex; gap: 0; }
+.tab-btn {
+  background: none; border: 1px solid var(--border-dim);
+  color: var(--dim-text); font-family: var(--font);
+  font-size: 9px; letter-spacing: 1px;
+  padding: 5px 14px; cursor: pointer;
+  transition: all 0.2s;
+}
+.tab-btn:first-child { border-right: none; }
+.tab-btn:hover  { color: var(--cyan); border-color: var(--border); }
+.tab-btn.active {
+  background: rgba(0,200,255,0.12); color: var(--cyan);
+  border-color: var(--border);
+}
+
+.header-right { display: flex; align-items: center; gap: 16px; font-size: 9px; }
+
+.live-dot {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--green);
+}
+.live-dot::before {
+  content: '●';
+  animation: blink 1.4s step-start infinite;
+}
+#mode-badge {
+  font-size: 8px; letter-spacing: 1px; padding: 3px 7px;
+  border: 1px solid;
+}
+#mode-badge.demo { color: var(--yellow); border-color: var(--yellow); }
+#mode-badge.live { color: var(--green);  border-color: var(--green); animation: none; }
+
+/* ── Main Layout ───────────────────────────────────────────────────── */
+.layout {
+  display: grid;
+  grid-template-columns: 270px 1fr;
+  flex: 1;
+}
+
+@media (max-width: 880px) {
+  .layout { grid-template-columns: 1fr; }
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────── */
+.sidebar {
+  border-right: 1px solid var(--border-purp);
+  display: flex; flex-direction: column;
+  background: rgba(8,4,24,0.50);   /* more transparent — ocean shows through */
+  padding: 16px 14px;
+  gap: 14px;
+  overflow: hidden;
+  backdrop-filter: blur(4px);
+}
+
+/* ── Panel (SEN-NIN card style) ────────────────────────────────────── */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  position: relative;
+  padding: 12px;
+}
+
+/* Corner brackets — lifted directly from SEN-NIN DASH */
+.panel::before, .panel::after,
+.panel .corner-br { position: absolute; }
+
+.panel::before {
+  content: '';
+  top: -1px; left: -1px;
+  width: 10px; height: 10px;
+  border-top: 2px solid var(--cyan);
+  border-left: 2px solid var(--cyan);
+}
+.panel::after {
+  content: '';
+  top: -1px; right: -1px;
+  width: 10px; height: 10px;
+  border-top: 2px solid var(--cyan);
+  border-right: 2px solid var(--cyan);
+}
+.panel .corner-br {
+  display: block;
+  bottom: -1px; right: -1px;
+  width: 10px; height: 10px;
+  border-bottom: 2px solid var(--cyan);
+  border-right: 2px solid var(--cyan);
+}
+.panel .corner-bl {
+  display: block;
+  position: absolute;
+  bottom: -1px; left: -1px;
+  width: 10px; height: 10px;
+  border-bottom: 2px solid var(--cyan);
+  border-left: 2px solid var(--cyan);
+}
+
+/* Panel header row */
+.panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 8px; letter-spacing: 1px; color: var(--cyan);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-dim);
+}
+.panel-header .live-indicator {
+  color: var(--green); display: flex; align-items: center; gap: 4px;
+}
+.panel-header .live-indicator::before { content: '●'; font-size: 7px; }
+
+/* ── Radar ─────────────────────────────────────────────────────────── */
+.radar-wrap {
+  display: flex; flex-direction: column; align-items: center;
+}
+
+.radar-svg {
+  width: 220px; height: 220px;
+  overflow: visible;
+}
+
+.radar-label {
+  font-size: 8px; color: var(--dim-text); letter-spacing: 1px;
+  margin-top: 6px; text-align: center;
+}
+
+/* Radar sweep animation */
+.radar-sweep-group {
+  transform-origin: 0px 0px;
+  animation: radar-spin 4s linear infinite;
+}
+
+@keyframes radar-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Radar dot classes */
+.radar-dot {
+  transition: fill 0.4s ease;
+}
+.radar-dot.in_progress {
+  fill: var(--yellow);
+  animation: dot-pulse-anim 0.7s ease-in-out infinite;
+  filter: drop-shadow(0 0 3px var(--yellow));
+}
+.radar-dot.success {
+  fill: var(--green);
+  filter: drop-shadow(0 0 2px var(--green));
+}
+.radar-dot.failed {
+  fill: var(--red);
+  filter: drop-shadow(0 0 2px var(--red));
+}
+.radar-dot.skipped {
+  fill: var(--blue); opacity: 0.5;
+}
+.radar-dot.manual {
+  fill: var(--orange);
+  filter: drop-shadow(0 0 2px var(--orange));
+  animation: dot-pulse-anim 1.5s ease-in-out infinite;
+}
+
+@keyframes dot-pulse-anim {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* ── Agent Log ─────────────────────────────────────────────────────── */
+.agent-log {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#log-entries {
+  display: flex; flex-direction: column; gap: 3px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.log-line {
+  font-size: 8px; line-height: 1.6;
+  font-family: var(--font);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  animation: log-fade-in 0.25s ease;
+}
+.log-line.cyan   { color: var(--cyan); }
+.log-line.green  { color: var(--green); }
+.log-line.red    { color: var(--red); }
+.log-line.yellow { color: var(--yellow); }
+.log-line.orange { color: var(--orange); }
+.log-line.dim    { color: var(--dim-text); }
+
+@keyframes log-fade-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Signal bar */
+.signal-bar {
+  font-size: 8px; color: var(--dim-text);
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid var(--border-dim);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.signal-blocks { color: var(--cyan); letter-spacing: 2px; }
+
+/* ── Main Content ──────────────────────────────────────────────────── */
+.main-content {
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Stats Bar ─────────────────────────────────────────────────────── */
+.stats-bar {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.stat-item {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 12px 6px;
+  border-right: 1px solid var(--border-dim);
+  font-size: 9px;
+  transition: background 0.3s;
+}
+.stat-item:last-child { border-right: none; }
+
+.stat-num  { font-size: 20px; font-weight: 700; line-height: 1.1; }
+.stat-lbl  { font-size: 7px; color: var(--dim-text); letter-spacing: 1px; margin-top: 3px; }
+.stat-icon { font-size: 10px; margin-bottom: 2px; }
+
+.stat-item.s-total   { color: var(--text); }
+.stat-item.s-success { color: var(--green); }
+.stat-item.s-active  { color: var(--yellow); }
+.stat-item.s-failed  { color: var(--red); }
+.stat-item.s-skipped { color: var(--blue); }
+.stat-item.s-manual  { color: var(--orange); }
+
+/* ── Progress Bar ──────────────────────────────────────────────────── */
+.progress-wrap {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-dim);
+  background: rgba(6,3,16,0.5);
+}
+.progress-track {
+  flex: 1; height: 10px;
+  background: rgba(0,200,255,0.06);
+  border: 1px solid var(--border-dim);
+  position: relative; overflow: hidden;
+}
+#progress-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--purple), var(--cyan));
+  transition: width 0.7s ease;
+  position: relative;
+}
+#progress-fill::after {
+  content: '';
+  position: absolute; right: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: white; opacity: 0.6; filter: blur(1px);
+}
+#progress-pct {
+  font-size: 8px; color: var(--cyan);
+  letter-spacing: 1px; min-width: 110px; text-align: right;
+  white-space: nowrap;
+}
+
+/* ── Legend ────────────────────────────────────────────────────────── */
+.legend {
+  display: flex; flex-wrap: wrap; gap: 6px 16px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border-dim);
+  background: rgba(6,3,16,0.3);
+}
+.legend-item {
+  font-size: 7px; letter-spacing: 1px;
+  display: flex; align-items: center; gap: 4px;
+}
+.legend-item.l1 { color: var(--s1); }
+.legend-item.l2 { color: var(--s2); }
+.legend-item.l3 { color: var(--s3); }
+.legend-item.l4 { color: var(--s4); }
+.legend-item.l5 { color: var(--s5); }
+.legend-item.l6 { color: var(--s6); }
+
+/* ── Broker Grid ───────────────────────────────────────────────────── */
+.grid-header {
+  font-size: 8px; color: var(--cyan); letter-spacing: 1px;
+  padding: 8px 16px 6px;
+  border-bottom: 1px solid var(--border-dim);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.grid-header .count { color: var(--dim-text); }
+
+#broker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+  gap: 1px;
+  background: var(--border-dim);
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* ── Broker Card (SEN-NIN Panel Style) ─────────────────────────────── */
+.card {
+  background: var(--panel);
+  padding: 10px 10px 8px;
+  display: flex; flex-direction: column; gap: 6px;
+  position: relative; overflow: hidden;
+  cursor: default;
+  transition: transform 0.12s ease, background 0.3s ease;
+  transform-style: preserve-3d;
+  min-height: 110px;
+  border: 1px solid transparent; /* overridden by status */
+}
+
+/* Corner brackets on cards */
+.card::before {
+  content: '';
+  position: absolute; top: 0; left: 0;
+  width: 6px; height: 6px;
+  border-top: 1px solid; border-left: 1px solid;
+}
+.card::after {
+  content: '';
+  position: absolute; top: 0; right: 0;
+  width: 6px; height: 6px;
+  border-top: 1px solid; border-right: 1px solid;
+}
+.card .card-corner-bl {
+  position: absolute; bottom: 0; left: 0;
+  width: 6px; height: 6px;
+  border-bottom: 1px solid; border-left: 1px solid;
+}
+.card .card-corner-br {
+  position: absolute; bottom: 0; right: 0;
+  width: 6px; height: 6px;
+  border-bottom: 1px solid; border-right: 1px solid;
+}
+
+.card-top {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 4px;
+}
+.card-strategy {
+  font-size: 7px; font-weight: 700; letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border: 1px solid;
+  flex-shrink: 0;
+}
+.card-strategy.s1 { color: var(--s1); border-color: var(--s1); }
+.card-strategy.s2 { color: var(--s2); border-color: var(--s2); }
+.card-strategy.s3 { color: var(--s3); border-color: var(--s3); }
+.card-strategy.s4 { color: var(--s4); border-color: var(--s4); }
+.card-strategy.s5 { color: var(--s5); border-color: var(--s5); }
+.card-strategy.s6 { color: var(--s6); border-color: var(--s6); }
+
+.card-status-icon { font-size: 8px; }
+
+.card-divider {
+  height: 1px; background: var(--border-dim);
+  margin: 2px 0;
+}
+
+.card-name {
+  font-size: 8px; line-height: 1.5;
+  word-break: break-word;
+  flex: 1;
+}
+
+.card-url { font-size: 7px; color: var(--dim-text); }
+
+.card-status {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 7px; letter-spacing: 0.5px;
+  margin-top: auto;
+}
+.status-dot {
+  width: 5px; height: 5px; flex-shrink: 0;
+  border-radius: 0; /* square — pixel art */
+}
+
+/* ── Card Status Themes ────────────────────────────────────────────── */
+.card.pending {
+  border-color: rgba(68,85,102,0.3);
+  background: rgba(8,10,20,0.72);
+}
+.card.pending::before, .card.pending::after,
+.card.pending .card-corner-bl, .card.pending .card-corner-br {
+  border-color: var(--dim);
+}
+.card.pending .status-dot { background: var(--dim); }
+.card.pending .card-status { color: var(--dim-text); }
+
+.card.in_progress {
+  border-color: rgba(255,215,0,0.35);
+  background: rgba(18,14,4,0.95);
+  box-shadow: 0 0 16px rgba(255,215,0,0.12), inset 0 0 20px rgba(255,215,0,0.04);
+  animation: card-pulse-yellow 2s ease-in-out infinite;
+}
+.card.in_progress::before, .card.in_progress::after,
+.card.in_progress .card-corner-bl, .card.in_progress .card-corner-br {
+  border-color: var(--yellow);
+}
+.card.in_progress .status-dot { background: var(--yellow); animation: blink 0.7s step-start infinite; }
+.card.in_progress .card-status { color: var(--yellow); }
+
+/* Scanline sweep on active cards */
+.card.in_progress .scan-line {
+  display: block;
+  position: absolute; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,215,0,0.6), transparent);
+  animation: scanline 2.2s linear infinite;
+  pointer-events: none;
+}
+
+.card.success {
+  border-color: rgba(0,255,102,0.3);
+  background: rgba(4,18,10,0.95);
+  box-shadow: 0 0 16px rgba(0,255,102,0.12);
+}
+.card.success::before, .card.success::after,
+.card.success .card-corner-bl, .card.success .card-corner-br {
+  border-color: var(--green);
+}
+.card.success .status-dot { background: var(--green); }
+.card.success .card-status { color: var(--green); }
+
+.card.failed {
+  border-color: rgba(255,34,68,0.3);
+  background: rgba(16,4,8,0.95);
+  box-shadow: 0 0 14px rgba(255,34,68,0.1);
+}
+.card.failed::before, .card.failed::after,
+.card.failed .card-corner-bl, .card.failed .card-corner-br {
+  border-color: var(--red);
+}
+.card.failed .status-dot { background: var(--red); }
+.card.failed .card-status { color: var(--red); }
+
+.card.skipped {
+  border-color: rgba(77,153,255,0.15);
+  background: rgba(6,10,22,0.85);
+  opacity: 0.65;
+}
+.card.skipped::before, .card.skipped::after,
+.card.skipped .card-corner-bl, .card.skipped .card-corner-br {
+  border-color: var(--blue);
+}
+.card.skipped .status-dot { background: var(--blue); }
+.card.skipped .card-status { color: var(--blue); }
+
+.card.manual {
+  border-color: rgba(255,107,0,0.3);
+  background: rgba(16,8,0,0.95);
+  box-shadow: 0 0 12px rgba(255,107,0,0.1);
+}
+.card.manual::before, .card.manual::after,
+.card.manual .card-corner-bl, .card.manual .card-corner-br {
+  border-color: var(--orange);
+}
+.card.manual .status-dot { background: var(--orange); animation: blink 1.4s step-start infinite; }
+.card.manual .card-status { color: var(--orange); }
+
+/* ── HUD Bottom Bar ────────────────────────────────────────────────── */
+.hud-bar {
+  position: sticky; bottom: 0; z-index: 20;
+  background: rgba(6,3,16,0.97);
+  border-top: 1px solid var(--border-purp);
+  backdrop-filter: blur(6px);
+  padding: 7px 20px;
+  display: flex; align-items: center; gap: 24px;
+  font-size: 8px; letter-spacing: 1px;
+  flex-wrap: wrap;
+}
+.hud-item { display: flex; align-items: center; gap: 6px; color: var(--dim-text); }
+.hud-item .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.hud-item.active .dot { background: var(--green); animation: blink 1.4s step-start infinite; }
+.hud-item.active { color: var(--green); }
+.hud-val { color: var(--cyan); }
+#hud-target { color: var(--purple); }
+.hud-spacer { flex: 1; }
+#hud-clearance { color: var(--cyan); }
+#hud-time { color: var(--dim-text); }
+
+/* ── Keyframe Animations ───────────────────────────────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+@keyframes card-pulse-yellow {
+  0%, 100% { box-shadow: 0 0 16px rgba(255,215,0,0.12), inset 0 0 20px rgba(255,215,0,0.04); }
+  50%       { box-shadow: 0 0 28px rgba(255,215,0,0.22), inset 0 0 30px rgba(255,215,0,0.08); }
+}
+@keyframes scanline {
+  0%   { top: 0; opacity: 1; }
+  100% { top: 100%; opacity: 0.2; }
+}
+@keyframes glitch {
+  0%, 100% { transform: none; filter: none; }
+  20%  { transform: translateX(-3px); filter: hue-rotate(80deg); }
+  40%  { transform: translateX(3px);  filter: none; }
+  60%  { transform: translateX(-2px); filter: hue-rotate(-80deg); }
+  80%  { transform: translateX(1px);  filter: none; }
+}
+@keyframes success-bg {
+  0%   { background: rgba(0,255,102,0.2); }
+  100% { background: rgba(4,18,10,0.95); }
+}
+
+/* ── Pixel Particles ───────────────────────────────────────────────── */
+.particle {
+  position: fixed; pointer-events: none; z-index: 9999;
+  image-rendering: pixelated;
+  animation: particle-fly 0.65s ease-out forwards;
+}
+@keyframes particle-fly {
+  0%   { transform: translate(0,0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx),var(--dy)) scale(0); opacity: 0; }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── Scan line on inactive cards (removed) ─────────────────────────── */
+.scan-line { display: none; }
+
+/* ── Ocean Canvas (floats ABOVE the UI, screen-blended) ───────────── */
+/* mix-blend-mode:screen: dark canvas pixels vanish, cyan glow adds to UI */
+#ocean-canvas {
+  position: fixed; inset: 0; z-index: 100;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+/* #target-view is transparent in the flex column — "display:contents" */
+#target-view { display: contents; }
+
+/* ── Log View (AGENT_LOG tab) ──────────────────────────────────────── */
+#log-view {
+  display: none; flex: 1; overflow-y: auto;
+  padding: 20px 24px; font-size: 11px; line-height: 2; letter-spacing: 0.5px;
+  flex-direction: column; gap: 1px;
+}
+.lv-entry { display: flex; gap: 14px; padding: 2px 0; border-bottom: 1px solid var(--border-dim); }
+.lv-ts   { color: var(--dim-text); flex-shrink: 0; font-size: 9px; margin-top: 2px; }
+.lv-txt  { color: var(--cyan); flex: 1; word-break: break-word; }
+.lv-txt.green  { color: var(--green); }
+.lv-txt.red    { color: var(--red); }
+.lv-txt.yellow { color: var(--yellow); }
+.lv-txt.orange { color: var(--orange); }
+.lv-txt.dim    { color: var(--dim-text); }
+
+/* ── Detail Modal ──────────────────────────────────────────────────── */
+#detail-modal {
+  display: none; position: fixed; inset: 0; z-index: 200;
+  background: rgba(6,3,16,0.75); backdrop-filter: blur(5px);
+  align-items: center; justify-content: center;
+}
+#detail-modal.open { display: flex; }
+.detail-panel {
+  background: var(--panel); border: 1px solid var(--border);
+  min-width: 340px; max-width: 500px; width: 90%;
+  padding: 20px 22px; position: relative;
+  animation: detail-in 0.18s ease;
+}
+@keyframes detail-in {
+  from { transform: translateY(10px) scale(0.97); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+.detail-close {
+  position: absolute; top: 12px; right: 12px;
+  background: none; border: 1px solid var(--border-dim); color: var(--dim-text);
+  cursor: pointer; font-family: var(--font); font-size: 9px; padding: 3px 8px;
+  transition: all 0.15s; letter-spacing: 1px;
+}
+.detail-close:hover { color: var(--red); border-color: var(--red); }
+.detail-row {
+  display: flex; gap: 14px; padding: 8px 0;
+  border-bottom: 1px solid var(--border-dim); font-size: 10px; align-items: baseline;
+}
+.detail-row:last-child { border-bottom: none; }
+.detail-key { color: var(--dim-text); letter-spacing: 1px; font-size: 8px; min-width: 80px; flex-shrink: 0; }
+.detail-val { color: var(--text); word-break: break-all; }
+.detail-val.cyan   { color: var(--cyan); }
+.detail-val.green  { color: var(--green); }
+.detail-val.red    { color: var(--red); }
+.detail-val.yellow { color: var(--yellow); }
+.detail-val.orange { color: var(--orange); }
+.detail-val.dim    { color: var(--dim-text); font-style: italic; }
+/* Cards are now clickable */
+.card { cursor: pointer; }
+.card:hover { border-color: rgba(0,200,255,0.5) !important; transition: border-color 0.15s; }
+
+/* ── Filter bar ────────────────────────────────────────────────────── */
+.filter-bar {
+  display: flex; gap: 6px; padding: 6px 16px;
+  border-bottom: 1px solid var(--border-dim);
+  background: rgba(6,3,16,0.4); flex-wrap: wrap;
+  position: relative; z-index: 1;
+}
+.filter-btn {
+  background: none; border: 1px solid var(--border-dim);
+  color: var(--dim-text); font-family: var(--font);
+  font-size: 8px; letter-spacing: 1px; padding: 3px 10px;
+  cursor: pointer; transition: all 0.15s;
+}
+.filter-btn:hover, .filter-btn.active { color: var(--cyan); border-color: var(--border); background: rgba(0,200,255,0.07); }
+  </style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+<canvas id="ocean-canvas"></canvas>
+
+<div id="app">
+
+  <!-- ── Header ──────────────────────────────────────────────────── -->
+  <header>
+    <div class="header-left">
+      <span class="title-exe">▶ DATABROKER.exe</span>
+      <div class="header-tabs">
+        <button class="tab-btn active" onclick="setTab('targets')">TARGET_LIST</button>
+        <button class="tab-btn"        onclick="setTab('log')">AGENT_LOG</button>
+      </div>
+    </div>
+    <div class="header-right">
+      <span class="live-dot" id="agent-link-status">AGENT_LINK</span>
+      <span id="mode-badge" class="demo">DEMO</span>
+    </div>
+  </header>
+
+  <!-- ── Layout ──────────────────────────────────────────────────── -->
+  <div class="layout">
+
+    <!-- ── Sidebar ──────────────────────────────────────────────── -->
+    <aside class="sidebar">
+
+      <!-- Radar -->
+      <div class="panel radar-wrap">
+        <div class="panel-header">
+          BROKER_SCANNER.exe
+          <span class="live-indicator">LIVE_FEED</span>
+        </div>
+        <svg id="radar-svg" class="radar-svg" viewBox="-100 -100 200 200">
+          <defs>
+            <radialGradient id="radarBg" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+              <stop offset="0%"   stop-color="#0a2040" stop-opacity="1"/>
+              <stop offset="100%" stop-color="#040818" stop-opacity="1"/>
+            </radialGradient>
+            <radialGradient id="sweepGrad" cx="0" cy="0" r="90" gradientUnits="userSpaceOnUse">
+              <stop offset="0%"   stop-color="rgba(0,200,255,0.5)"/>
+              <stop offset="70%"  stop-color="rgba(0,200,255,0.15)"/>
+              <stop offset="100%" stop-color="rgba(0,200,255,0)"/>
+            </radialGradient>
+            <clipPath id="radarClip"><circle r="90"/></clipPath>
+          </defs>
+
+          <!-- Background -->
+          <circle r="90" fill="url(#radarBg)"/>
+
+          <!-- Grid (clipped) -->
+          <g clip-path="url(#radarClip)" stroke="rgba(0,200,255,0.07)" stroke-width="0.5">
+            <!-- Horizontal lines -->
+            <line x1="-90" y1="-70" x2="90" y2="-70"/>
+            <line x1="-90" y1="-50" x2="90" y2="-50"/>
+            <line x1="-90" y1="-30" x2="90" y2="-30"/>
+            <line x1="-90" y1="-10" x2="90" y2="-10"/>
+            <line x1="-90" y1="10"  x2="90" y2="10"/>
+            <line x1="-90" y1="30"  x2="90" y2="30"/>
+            <line x1="-90" y1="50"  x2="90" y2="50"/>
+            <line x1="-90" y1="70"  x2="90" y2="70"/>
+            <!-- Vertical lines -->
+            <line x1="-70" y1="-90" x2="-70" y2="90"/>
+            <line x1="-50" y1="-90" x2="-50" y2="90"/>
+            <line x1="-30" y1="-90" x2="-30" y2="90"/>
+            <line x1="-10" y1="-90" x2="-10" y2="90"/>
+            <line x1="10"  y1="-90" x2="10"  y2="90"/>
+            <line x1="30"  y1="-90" x2="30"  y2="90"/>
+            <line x1="50"  y1="-90" x2="50"  y2="90"/>
+            <line x1="70"  y1="-90" x2="70"  y2="90"/>
+          </g>
+
+          <!-- Radial lines -->
+          <g clip-path="url(#radarClip)" stroke="rgba(0,200,255,0.1)" stroke-width="0.5">
+            <line x1="0" y1="-90" x2="0"  y2="90"/>
+            <line x1="-90" y1="0" x2="90" y2="0"/>
+            <line x1="-64" y1="-64" x2="64" y2="64"/>
+            <line x1="64"  y1="-64" x2="-64" y2="64"/>
+          </g>
+
+          <!-- Sweep (animated) -->
+          <g class="radar-sweep-group" clip-path="url(#radarClip)">
+            <!-- Sector fill -->
+            <path d="M0,0 L0,-90 A90,90,0,0,1,45,-78 Z" fill="url(#sweepGrad)" opacity="0.8"/>
+            <!-- Leading edge line -->
+            <line x1="0" y1="0" x2="0" y2="-90"
+                  stroke="rgba(0,200,255,0.7)" stroke-width="1"/>
+          </g>
+
+          <!-- Dots container (filled by JS) -->
+          <g id="radar-dots"></g>
+
+          <!-- Concentric rings (above dots) -->
+          <circle r="32" fill="none" stroke="rgba(0,200,255,0.18)" stroke-width="0.5"/>
+          <circle r="60" fill="none" stroke="rgba(0,200,255,0.14)" stroke-width="0.5"/>
+          <circle r="85" fill="none" stroke="rgba(0,200,255,0.22)" stroke-width="1"/>
+
+          <!-- Ring labels -->
+          <text x="33" y="2"  font-family="Space Mono,monospace" font-size="4.5" fill="rgba(0,200,255,0.4)">S1-2</text>
+          <text x="61" y="2"  font-family="Space Mono,monospace" font-size="4.5" fill="rgba(0,200,255,0.35)">S3-4</text>
+          <text x="72" y="-70" font-family="Space Mono,monospace" font-size="4.5" fill="rgba(0,200,255,0.3)">S5-6</text>
+
+          <!-- Center crosshair -->
+          <circle r="3" fill="var(--cyan)" opacity="0.9"/>
+          <circle r="6" fill="none" stroke="rgba(0,200,255,0.4)" stroke-width="0.5"/>
+        </svg>
+        <div class="radar-label" id="radar-label">TARGET_SELECTION.exe</div>
+        <span class="corner-br"></span><span class="corner-bl"></span>
+      </div>
+
+      <!-- Agent Log -->
+      <div class="panel agent-log" style="flex:1; min-height: 160px;">
+        <div class="panel-header">
+          OPT_OUT_AGENT.sys
+          <span class="live-indicator" id="agent-status-label">STANDBY</span>
+        </div>
+
+        <div id="log-entries">
+          <div class="log-line dim">> SYSTEM_INIT: COMPLETE</div>
+          <div class="log-line dim">> BATCH_1: LOADED</div>
+          <div class="log-line cyan">> AWAITING_START...</div>
+        </div>
+
+        <div class="signal-bar">
+          <span>SIGNAL:</span>
+          <span class="signal-blocks" id="signal-blocks">▪▪▪▪░</span>
+          <span id="signal-pct">87%</span>
+        </div>
+        <span class="corner-br"></span><span class="corner-bl"></span>
+      </div>
+
+    </aside>
+
+    <!-- ── Main Content ──────────────────────────────────────────── -->
+    <main class="main-content">
+
+      <!-- Stats Bar -->
+      <div class="stats-bar">
+        <div class="stat-item s-total">
+          <div class="stat-num" id="num-total">85</div>
+          <div class="stat-lbl">TOTAL</div>
+        </div>
+        <div class="stat-item s-success">
+          <div class="stat-icon">✓</div>
+          <div class="stat-num" id="num-success">0</div>
+          <div class="stat-lbl">CLEARED</div>
+        </div>
+        <div class="stat-item s-active">
+          <div class="stat-icon">⚡</div>
+          <div class="stat-num" id="num-active">0</div>
+          <div class="stat-lbl">ACTIVE</div>
+        </div>
+        <div class="stat-item s-failed">
+          <div class="stat-icon">✗</div>
+          <div class="stat-num" id="num-failed">0</div>
+          <div class="stat-lbl">FAILED</div>
+        </div>
+        <div class="stat-item s-skipped">
+          <div class="stat-icon">⏭</div>
+          <div class="stat-num" id="num-skipped">0</div>
+          <div class="stat-lbl">SKIPPED</div>
+        </div>
+        <div class="stat-item s-manual">
+          <div class="stat-icon">⚑</div>
+          <div class="stat-num" id="num-manual">0</div>
+          <div class="stat-lbl">MANUAL</div>
+        </div>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-wrap">
+        <div class="progress-track"><div id="progress-fill"></div></div>
+        <div id="progress-pct">0% CLEARANCE_PCT</div>
+      </div>
+
+      <!-- TARGET_LIST view (shown by default) -->
+      <div id="target-view">
+
+        <!-- Legend -->
+        <div class="legend">
+          <span class="legend-item l1">■ S1 AFFILIATE_CASCADE</span>
+          <span class="legend-item l2">■ S2 HIDDEN_OPT_OUT</span>
+          <span class="legend-item l3">■ S3 PRIVACY_DISCOVERY</span>
+          <span class="legend-item l4">■ S4 BUSINESS_DIRS</span>
+          <span class="legend-item l5">■ S5 WHOIS_EMAIL</span>
+          <span class="legend-item l6">■ S6 PROFILE_BROKERS</span>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="filter-bar">
+          <button class="filter-btn active" onclick="applyFilter('all',this)">ALL</button>
+          <button class="filter-btn" onclick="applyFilter('pending',this)">○ PENDING</button>
+          <button class="filter-btn" onclick="applyFilter('success',this)">✓ CLEARED</button>
+          <button class="filter-btn" onclick="applyFilter('failed',this)">✗ FAILED</button>
+          <button class="filter-btn" onclick="applyFilter('in_progress',this)">⚡ ACTIVE</button>
+          <button class="filter-btn" onclick="applyFilter('skipped',this)">⏭ SKIPPED</button>
+          <button class="filter-btn" onclick="applyFilter('manual',this)">⚑ MANUAL</button>
+        </div>
+
+        <!-- Grid header -->
+        <div class="grid-header">
+          TARGET_LIST.dat
+          <span class="count" id="grid-count">85 TARGETS LOADED</span>
+        </div>
+
+        <!-- Broker Grid -->
+        <div id="broker-grid"></div>
+
+      </div><!-- #target-view -->
+
+      <!-- AGENT_LOG view (shown when log tab active) -->
+      <div id="log-view"></div>
+
+    </main>
+  </div>
+
+  <!-- ── HUD Bottom Bar ───────────────────────────────────────────── -->
+  <footer class="hud-bar">
+    <div class="hud-item active">
+      <div class="dot"></div>
+      AGENT_ACTIVE
+    </div>
+    <div class="hud-item">
+      BATCH: <span class="hud-val">BATCH_1 / TRUTHFINDER_CASCADE.exe</span>
+    </div>
+    <div class="hud-item">
+      TARGET: <span id="hud-target">—</span>
+    </div>
+    <div class="hud-spacer"></div>
+    <div class="hud-item">
+      CLEARED: <span id="hud-clearance" class="hud-val">0 / 85</span>
+    </div>
+    <div class="hud-item">
+      PRIVACY_CORE: <span style="color:var(--green)">STABLE</span>
+    </div>
+    <div class="hud-item" id="hud-time" style="color:var(--dim-text)">--:--:--</div>
+  </footer>
+
+</div><!-- #app -->
+
+<!-- ── Broker Detail Modal ──────────────────────────────────────────── -->
+<div id="detail-modal" onclick="if(event.target===this)closeDetail()">
+  <div class="detail-panel">
+    <button class="detail-close" onclick="closeDetail()">✕ CLOSE</button>
+    <div class="panel-header" style="margin-bottom:14px">
+      BROKER_DETAIL.exe
+      <span id="detail-strategy-badge" class="card-strategy" style="border:1px solid"></span>
+    </div>
+    <div id="detail-content"></div>
+    <span class="corner-br"></span><span class="corner-bl"></span>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"
+        onerror="console.warn('[DATABROKER] Three.js CDN failed — pixel bg disabled')"></script>
+<script>
+'use strict';
+
+// ══════════════════════════════════════════════════════════════════
+//  BROKER DATA
+// ══════════════════════════════════════════════════════════════════
+const BROKER_DATA = [
+  {id:'backgroundcheckme',     name:'Backgroundcheckme.org',     strategy:1},
+  {id:'newyorkpublicrecords',  name:'NewYorkPublicRecords.org',  strategy:1},
+  {id:'oregonpublicrecords',   name:'OregonPublicRecords.org',   strategy:1},
+  {id:'publicrecordscenter',   name:'PublicRecordsCenter',       strategy:1},
+  {id:'publicrecordsreviews',  name:'PublicRecordsReviews',      strategy:1},
+  {id:'publicsrecords',        name:'PublicsRecords',            strategy:1},
+  {id:'top4backgroundchecks', name:'Top4Backgroundchecks',     strategy:1},
+  {id:'peeplookup',            name:'PeepLookup',               strategy:2},
+  {id:'ohioresidentdirectory', name:'Ohio Resident Dir.',       strategy:2},
+  {id:'peoplesearchexpert',    name:'People Search Expert',     strategy:2},
+  {id:'peoplefastfind',        name:'PeopleFastFind',           strategy:2},
+  {id:'backgroundchecksorg',   name:'Background Checks.org',    strategy:2},
+  {id:'backgroundchecksme',    name:'BackgroundChecks.me',      strategy:2},
+  {id:'freepeoplesearch',      name:'FreePeopleSearch.com',     strategy:2},
+  {id:'usawhitepages',         name:'USAWhitepages',            strategy:2},
+  {id:'usaphonesbook',         name:'USAPhonesBook',            strategy:2},
+  {id:'locatefamily',          name:'LocateFamily.com',         strategy:2},
+  {id:'reuniondotcom',         name:'Reunion.com',              strategy:2},
+  {id:'addrhistory',           name:'AddrHistory',              strategy:2},
+  {id:'alumnius',              name:'Alumni US',                strategy:2},
+  {id:'jailbase',              name:'JailBase',                 strategy:2},
+  {id:'alignable',             name:'Alignable',                strategy:3},
+  {id:'allpeople',             name:'AllPeople.biz',            strategy:3},
+  {id:'enpnetwork',            name:'ENP Network',              strategy:3},
+  {id:'konaequity',            name:'Kona Equity',              strategy:3},
+  {id:'morningstar',           name:'Morningstar',              strategy:3},
+  {id:'listmatch',             name:'ListMatch',                strategy:3},
+  {id:'cityzor',               name:'Cityzor',                  strategy:3},
+  {id:'criminalpages',         name:'CriminalPages.com',        strategy:3},
+  {id:'genealogicreview',      name:'Genealogic.review',        strategy:3},
+  {id:'lacountydearrest',      name:'LA County Arrest Rec.',    strategy:3},
+  {id:'myfunnyprofile',        name:'My Funny Profile',         strategy:3},
+  {id:'ndpeoplerecords',       name:'ND People Records',        strategy:3},
+  {id:'mapeoplerecords',       name:'MA People Records',        strategy:3},
+  {id:'oldfriends',            name:'Old-Friends.co',           strategy:3},
+  {id:'oldphonebook',          name:'OldPhoneBook.com',         strategy:3},
+  {id:'opendatausa',           name:'OpenDataUSA',              strategy:3},
+  {id:'stageresearch',         name:'StageResearch',            strategy:3},
+  {id:'realtyverify',          name:'RealtyVerify',             strategy:3},
+  {id:'parcellookup',          name:'ParcelLookup.com',         strategy:3},
+  {id:'censusinfous',          name:'census-info.us',           strategy:3},
+  {id:'knsee',                 name:'knsee.com',                strategy:3},
+  {id:'pininthemap',           name:'pininthemap.com',          strategy:3},
+  {id:'pplchecker',            name:'pplChecker',               strategy:3},
+  {id:'h1bdata',               name:'h1bdata.info',             strategy:3},
+  {id:'imagemaps',             name:'image-maps.com',           strategy:3},
+  {id:'amfibi',                name:'Amfibi',                   strategy:4},
+  {id:'azcorpcorp',            name:'AZ Corp Commission',       strategy:4},
+  {id:'ausibiz',               name:'AusiBiz',                  strategy:4},
+  {id:'cabizdb',               name:'CA Business Database',     strategy:4},
+  {id:'canadacompany',         name:'Canada Company Registry',  strategy:4},
+  {id:'georgiacompany',        name:'Georgia Company Registry', strategy:4},
+  {id:'merchantcircle',        name:'MerchantCircle',           strategy:4},
+  {id:'misterwhat',            name:'MisterWhat',               strategy:4},
+  {id:'opencorpdata',          name:'OpenCorpData',             strategy:4},
+  {id:'panjiva',               name:'Panjiva',                  strategy:4},
+  {id:'stateinfoservices',     name:'State Info Services',      strategy:4},
+  {id:'realyellowpages',       name:'The Real Yellow Pages',    strategy:4},
+  {id:'wacompanysearch',       name:'WA Company Search',        strategy:4},
+  {id:'wealthminder',          name:'Wealthminder',             strategy:4},
+  {id:'websiteoutlook',        name:'WebsiteOutlook',           strategy:4},
+  {id:'zaubee',                name:'Zaubee',                   strategy:4},
+  {id:'localchiros',           name:'localchiros.com',          strategy:4},
+  {id:'ppploaninfo',           name:'ppp-loan.info',            strategy:4},
+  {id:'1called',               name:'1called.com',              strategy:5},
+  {id:'1whonet',               name:'1who.net',                 strategy:5},
+  {id:'411reverselookup',      name:'411reverselookup.ca',      strategy:5},
+  {id:'calleridtest',          name:'CallerIDTest',             strategy:5},
+  {id:'phonecheckpro',         name:'PhoneCheck Pro',           strategy:5},
+  {id:'phonehistory',          name:'PhoneHistory.com',         strategy:5},
+  {id:'processingbordeaux',    name:'ProcessingBordeaux',       strategy:5},
+  {id:'reverselookups',        name:'Reverselookups.org',       strategy:5},
+  {id:'usphonepro',            name:'US Phone Pro',             strategy:5},
+  {id:'usphonel ookup',        name:'USPhoneLookup',            strategy:5},
+  {id:'validnumber',           name:'Valid Number',             strategy:5},
+  {id:'whoseno',               name:'Whoseno',                  strategy:5},
+  {id:'bradylist',             name:'Brady List',               strategy:6},
+  {id:'docplayer',             name:'DocPlayer Inc.',           strategy:6},
+  {id:'identiq',               name:'Identiq',                  strategy:6},
+  {id:'joblookup',             name:'JobLookup Ltd',            strategy:6},
+  {id:'newcon',                name:'Newcon',                   strategy:6},
+  {id:'prehired',              name:'Prehired',                 strategy:6},
+  {id:'slideplayer',           name:'SlidePlayer',              strategy:6},
+  {id:'usvisainfo',            name:'US Visa Info Service',     strategy:6},
+  {id:'facecheckid',           name:'FaceCheck.ID',             strategy:6},
+];
+
+// ══════════════════════════════════════════════════════════════════
+//  THREE.JS — Purple Pixel Background (SEN-NIN palette)
+// ══════════════════════════════════════════════════════════════════
+(function initBackground() {
+  if (typeof THREE === 'undefined') {
+    console.warn('[DATABROKER] THREE not loaded — pixel background skipped');
+    return;
+  }
+  const canvas = document.getElementById('bg-canvas');
+  const W = Math.floor(window.innerWidth  / 4);
+  const H = Math.floor(window.innerHeight / 4);
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
+  renderer.setPixelRatio(1);
+  renderer.setSize(W, H, false);
+  canvas.style.width  = window.innerWidth  + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 200);
+  camera.position.set(0, 18, 22);
+  camera.lookAt(0, 0, 0);
+  scene.fog = new THREE.Fog(0x060310, 20, 60);
+
+  const GRID = 22, SPACING = 1.8;
+  const geo  = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+
+  // SEN-NIN inspired purple/deep palette
+  const darkPal   = [0x0a041e, 0x0c061e, 0x080318, 0x06021a];
+  const accentPal = [0x3a0a6e, 0x1a0a4e, 0x2a0a5e, 0x00c8ff, 0x9d4dff];
+
+  const cubes = [];
+  for (let x = 0; x < GRID; x++) {
+    for (let z = 0; z < GRID; z++) {
+      const isAccent = Math.random() < 0.07;
+      const col = isAccent
+        ? accentPal[Math.floor(Math.random() * accentPal.length)]
+        : darkPal  [Math.floor(Math.random() * darkPal.length)];
+      const mat  = new THREE.MeshBasicMaterial({ color: col });
+      const cube = new THREE.Mesh(geo, mat);
+      cube.position.set((x - GRID/2)*SPACING, 0, (z - GRID/2)*SPACING);
+      cube.userData = { gx:x, gz:z, phase: Math.random()*Math.PI*2, baseCol: new THREE.Color(col), isAccent };
+      scene.add(cube); cubes.push(cube);
+    }
+  }
+
+  let t = 0;
+  (function animate() {
+    requestAnimationFrame(animate); t += 0.006;
+    cubes.forEach(c => {
+      const { gx, gz, phase, baseCol, isAccent } = c.userData;
+      const w = Math.sin(gx*0.28 + gz*0.28 + t + phase);
+      c.position.y = w * 0.6;
+      c.rotation.y = t*0.06 + phase;
+      if (isAccent) c.material.color.copy(baseCol).multiplyScalar(0.4 + (w+1)*0.4);
+    });
+    camera.position.x = Math.sin(t*0.035)*3;
+    camera.position.z = 22 + Math.cos(t*0.025)*2;
+    camera.lookAt(0,0,0);
+    renderer.render(scene, camera);
+  })();
+
+  window.addEventListener('resize', () => {
+    const nW = Math.floor(window.innerWidth/4), nH = Math.floor(window.innerHeight/4);
+    renderer.setSize(nW, nH, false);
+    canvas.style.width = window.innerWidth+'px'; canvas.style.height = window.innerHeight+'px';
+    camera.aspect = nW/nH; camera.updateProjectionMatrix();
+  });
+})();
+
+// ══════════════════════════════════════════════════════════════════
+//  OCEAN CANVAS — manta ray + underwater atmosphere
+//  Viewed from below (like the photo): dark silhouette, blue water,
+//  dappled light caustics and slow sunbeams from the surface above.
+// ══════════════════════════════════════════════════════════════════
+(function initOcean() {
+  const canvas = document.getElementById('ocean-canvas');
+  const ctx = canvas.getContext('2d');
+  let W = 0, H = 0;
+
+  function resize() {
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // ── Caustic light blobs ─────────────────────────────────────────
+  // Screen blend: even low-alpha patches create visible shimmer on UI
+  const caustics = Array.from({length: 18}, () => ({
+    rx: Math.random(),
+    ry: 0.05 + Math.random()*0.9,
+    rr: 0.03 + Math.random()*0.08,
+    phase:  Math.random()*Math.PI*2,
+    speed:  0.20 + Math.random()*0.60,
+    alpha:  0.04 + Math.random()*0.08,   // 0.04–0.12 (screen makes these pop)
+    drift:  (Math.random()-0.5)*0.00015,
+  }));
+
+  // ── Sunbeams from surface ───────────────────────────────────────
+  const beams = Array.from({length: 8}, (_, i) => ({
+    xr:    0.04 + i * 0.13 + (Math.random()-0.5)*0.05,
+    angle: (Math.random()-0.5)*0.22,
+    width: 0.022 + Math.random()*0.030,
+    alpha: 0.025 + Math.random()*0.030,  // screen: ~0.03–0.06 looks subtle
+    phase: Math.random()*Math.PI*2,
+    speed: 0.0005 + Math.random()*0.0006,
+  }));
+
+  // ── Bubbles ─────────────────────────────────────────────────────
+  const bubbles = Array.from({length: 30}, () => ({
+    rx: Math.random(), ry: 1.05 + Math.random()*0.15,
+    rr: 0.0015 + Math.random()*0.003,
+    speed: 0.00035 + Math.random()*0.0006,
+    wobble: Math.random()*Math.PI*2,
+    alpha: 0.08 + Math.random()*0.18,
+  }));
+
+  // ── Manta state ─────────────────────────────────────────────────
+  // Elliptical orbit — center of screen, wide horizontal sweep
+  const ORX = 0.40, ORY = 0.24;     // orbit radii (fraction of W, H)
+  let orbitAngle = Math.PI * 0.5;   // start at bottom center — clearly visible
+  const ORBIT_SPEED = 0.00038;       // leisurely: full lap ~275s at 60fps
+  let flapPhase = 0;
+
+  // ── Clear canvas (screen blend: transparent = no effect on UI) ──────
+  function drawBg() {
+    ctx.clearRect(0, 0, W, H);
+  }
+
+  // ── Caustic light patches ─────────────────────────────────────────
+  function drawCaustics(t) {
+    caustics.forEach(c => {
+      const pulse = 0.5 + 0.5 * Math.sin(t * c.speed * 0.003 + c.phase);
+      const r = c.rr * Math.min(W, H) * (0.9 + 0.4 * pulse);
+      const x = ((c.rx + t * c.drift) % 1.3 - 0.15) * W;
+      const y = c.ry * H;
+      const a = c.alpha * pulse;   // 0.04–0.12; screen mode makes these visible
+      const gd = ctx.createRadialGradient(x, y, 0, x, y, r);
+      gd.addColorStop(0,   `rgba(100,200,255,${a})`);
+      gd.addColorStop(0.6, `rgba(50,140,230,${a * 0.3})`);
+      gd.addColorStop(1,   'rgba(0,60,160,0)');
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = gd; ctx.fill();
+    });
+  }
+
+  // ── Sunbeams from above ───────────────────────────────────────────
+  function drawBeams(t) {
+    beams.forEach(b => {
+      const pulse = 0.4 + 0.6 * Math.sin(t * b.speed + b.phase);
+      const x0 = b.xr * W, hw = b.width * W, len = H * 1.4;
+      const slant = Math.sin(b.angle) * len;
+      const a = b.alpha * pulse;   // 0.01–0.06; subtle shafts of light
+      const gd = ctx.createLinearGradient(x0, 0, x0 + slant, len);
+      gd.addColorStop(0, `rgba(140,215,255,${a})`);
+      gd.addColorStop(1, 'rgba(80,160,255,0)');
+      ctx.beginPath();
+      ctx.moveTo(x0 - hw, 0); ctx.lineTo(x0 + hw, 0);
+      ctx.lineTo(x0 + hw + slant, len); ctx.lineTo(x0 - hw + slant, len);
+      ctx.closePath(); ctx.fillStyle = gd; ctx.fill();
+    });
+  }
+
+  // ── Bubbles ───────────────────────────────────────────────────────
+  function drawBubbles(t) {
+    bubbles.forEach(b => {
+      b.ry -= b.speed;
+      if (b.ry < -0.05) { b.ry = 1.05; b.rx = Math.random(); }
+      const x = b.rx * W + Math.sin(t * 0.01 + b.wobble) * 8;
+      const y = b.ry * H;
+      const r = b.rr * Math.min(W, H);
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(160,225,255,${b.alpha * 2})`;
+      ctx.lineWidth = 0.8; ctx.stroke();
+    });
+  }
+
+  // ── Manta ray ─────────────────────────────────────────────────────
+  // Canvas floats above UI with mix-blend-mode:screen.
+  // Dark pixels vanish; cyan glow ADDS to whatever is underneath —
+  // the manta appears as a neon holographic outline over the whole page.
+  function drawManta(x, y, angle, flapT) {
+    const sc   = Math.min(W, H) * 0.0026;  // big: ~660px wingspan at 1440×900
+    const wTip = Math.sin(flapT) * 28;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.scale(sc, sc);
+
+    // Path builder — called multiple times
+    const mp = () => {
+      ctx.beginPath();
+      ctx.moveTo(0, 74);
+      ctx.bezierCurveTo(-2, 57, -4, 43, -3, 23);
+      ctx.bezierCurveTo(-6, 13, -14, 2, -25, -3);
+      ctx.bezierCurveTo(-43,-13, -84, -5+wTip*0.3, -132, 15+wTip);
+      ctx.bezierCurveTo(-142, 21+wTip, -135, 9+wTip*0.7, -120, 3+wTip*0.4);
+      ctx.bezierCurveTo(-87, -9+wTip*0.15, -49,-23, -29,-30);
+      ctx.bezierCurveTo(-27,-41, -23,-55, -17,-63);
+      ctx.bezierCurveTo(-10,-71, -3,-69, 0,-68);
+      ctx.bezierCurveTo(3,-69, 10,-71, 17,-63);
+      ctx.bezierCurveTo(23,-55, 27,-41, 29,-30);
+      ctx.bezierCurveTo(49,-23, 87,-9+wTip*0.15, 120, 3+wTip*0.4);
+      ctx.bezierCurveTo(135, 9+wTip*0.7, 142, 21+wTip, 132, 15+wTip);
+      ctx.bezierCurveTo(84,-5+wTip*0.3, 43,-13, 25,-3);
+      ctx.bezierCurveTo(14, 2, 6, 13, 3, 23);
+      ctx.bezierCurveTo(4, 43, 2, 57, 0, 74);
+      ctx.closePath();
+    };
+
+    // Outer glow layers (outer → inner, thick → thin, dim → bright)
+    // With screen blend: each layer ADDS cyan light to the page beneath.
+    const glowLayers = [
+      { w: 32, a: 0.04 },
+      { w: 20, a: 0.08 },
+      { w: 12, a: 0.14 },
+      { w:  7, a: 0.22 },
+      { w:  4, a: 0.45 },
+      { w:  2, a: 0.80 },
+      { w:  1, a: 1.00 },
+    ];
+    glowLayers.forEach(({ w, a }) => {
+      mp();
+      ctx.strokeStyle = `rgba(0,210,255,${a})`;
+      ctx.lineWidth = w / sc;
+      ctx.stroke();
+    });
+
+    // Spine — subtle internal detail
+    ctx.beginPath();
+    ctx.moveTo(0, 70); ctx.bezierCurveTo(0, 38, 0, 0, 0, -64);
+    ctx.strokeStyle = 'rgba(80,230,255,0.5)';
+    ctx.lineWidth = 2 / sc; ctx.stroke();
+
+    // Wing-tip accent dots
+    [[-132, 15+wTip], [132, 15+wTip]].forEach(([tx, ty]) => {
+      ctx.beginPath();
+      ctx.arc(tx, ty, 4 / sc, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(120,240,255,0.9)';
+      ctx.fill();
+    });
+
+    ctx.restore();
+  }
+
+  // ── Main loop ───────────────────────────────────────────────────
+  let t = 0;
+  function animate() {
+    requestAnimationFrame(animate);
+    t++;
+    if (!W || !H) { resize(); return; }
+
+    drawBg();
+    drawBeams(t);
+    drawCaustics(t);
+    // Bubbles skipped — screen blend makes them too visible on text
+
+    orbitAngle += ORBIT_SPEED;
+    flapPhase   = t * 0.027;
+
+    const cx = W * 0.5, cy = H * 0.48;
+    const rx = W * ORX,  ry = H * ORY;
+    const mx = cx + Math.cos(orbitAngle) * rx;
+    const my = cy + Math.sin(orbitAngle) * ry;
+
+    // Angle so manta's nose always faces direction of travel
+    const vx = -rx * Math.sin(orbitAngle);
+    const vy =  ry * Math.cos(orbitAngle);
+    const angle = Math.atan2(vx, -vy);
+
+    drawManta(mx, my, angle, flapPhase);
+  }
+
+  animate();
+})();
+
+// ══════════════════════════════════════════════════════════════════
+//  HASH UTILITY
+// ══════════════════════════════════════════════════════════════════
+function nameHash(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return h;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  RADAR — Dot positioning & updates
+// ══════════════════════════════════════════════════════════════════
+const RING_RANGES = { 1:[18,30], 2:[28,40], 3:[43,55], 4:[52,64], 5:[66,77], 6:[74,86] };
+
+function radarPos(broker) {
+  const [rMin, rMax] = RING_RANGES[broker.strategy] || [45, 60];
+  const h  = Math.abs(nameHash(broker.id));
+  const r  = rMin + (h % (rMax - rMin + 1));
+  const a  = (h % 10007) / 10007 * Math.PI * 2;
+  return { x: +(Math.cos(a)*r).toFixed(2), y: +(Math.sin(a)*r).toFixed(2) };
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function initRadar(brokers) {
+  const g = document.getElementById('radar-dots');
+  g.innerHTML = '';
+  brokers.forEach(b => {
+    const pos = radarPos(b);
+    const c = document.createElementNS(SVG_NS, 'circle');
+    c.setAttribute('cx', pos.x);
+    c.setAttribute('cy', pos.y);
+    c.setAttribute('r', '2.5');
+    c.setAttribute('fill', '#334455');
+    c.setAttribute('id', `rdot-${b.id}`);
+    c.classList.add('radar-dot');
+    g.appendChild(c);
+  });
+}
+
+function updateRadarDot(id, status) {
+  const dot = document.getElementById(`rdot-${id}`);
+  if (!dot) return;
+  dot.className.baseVal = `radar-dot ${status}`;
+  const fills = {
+    pending:'#334455', in_progress:'#ffd700',
+    success:'#00ff66', failed:'#ff2244', skipped:'#4d9fff', manual:'#ff6b00'
+  };
+  dot.setAttribute('fill', fills[status] || '#334455');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  AGENT LOG
+// ══════════════════════════════════════════════════════════════════
+const MAX_LOG = 8;
+const fullLog = []; // all entries for the AGENT_LOG tab view
+
+function addLogEntry(text, color = 'cyan') {
+  // Sidebar mini-log (capped at MAX_LOG)
+  const el = document.getElementById('log-entries');
+  const line = document.createElement('div');
+  line.className = `log-line ${color}`;
+  line.textContent = text;
+  el.appendChild(line);
+  while (el.children.length > MAX_LOG) el.removeChild(el.firstChild);
+
+  // Full log view
+  const ts = new Date().toTimeString().slice(0,8);
+  fullLog.push({ ts, text, color });
+  const lv = document.getElementById('log-view');
+  const entry = document.createElement('div');
+  entry.className = 'lv-entry';
+  entry.innerHTML = `<span class="lv-ts">${ts}</span><span class="lv-txt ${color}">${text}</span>`;
+  lv.appendChild(entry);
+  // Auto-scroll if log tab is visible
+  if (lv.style.display === 'flex') lv.scrollTop = lv.scrollHeight;
+}
+
+const LOG_TEMPLATES = {
+  in_progress: {
+    1: n => `> TARGETING ${n} [AFFILIATE_CASCADE]`,
+    2: n => `> OPT_OUT_PAGE: ${n}`,
+    3: n => `> PRIVACY_SCRAPE: ${n}`,
+    4: n => `> DIR_SEARCH: ${n}`,
+    5: n => `> WHOIS_QUERY: ${n}`,
+    6: n => `> PROFILE_SCAN: ${n}`,
+  },
+  success:  n => `> OPT_OUT_CONFIRMED: ${n} ✓`,
+  failed:   n => `> FAILED: ${n} — no path found`,
+  skipped:  n => `> SKIPPED: ${n} — no personal data`,
+  manual:   n => `> MANUAL_REVIEW: ${n} ⚑`,
+};
+
+function logForStatusChange(broker, status) {
+  const name = broker.name;
+  if (status === 'in_progress') {
+    const fn = LOG_TEMPLATES.in_progress[broker.strategy];
+    addLogEntry(fn ? fn(name) : `> TARGETING ${name}`, 'yellow');
+    document.getElementById('hud-target').textContent = name;
+    document.getElementById('radar-label').textContent = name.toUpperCase().replace(/\./g, '_');
+    document.getElementById('agent-status-label').textContent = 'PROCESSING';
+  } else {
+    const colorMap = { success:'green', failed:'red', skipped:'dim', manual:'orange' };
+    const fn = LOG_TEMPLATES[status];
+    if (fn) addLogEntry(fn(name), colorMap[status] || 'cyan');
+    if (status !== 'in_progress') document.getElementById('agent-status-label').textContent = 'STANDBY';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  DASHBOARD STATE & CARD MANAGEMENT
+// ══════════════════════════════════════════════════════════════════
+const state = {};
+
+const STATUS_LABELS = {
+  pending:'PENDING', in_progress:'WORKING...',
+  success:'CLEARED', failed:'FAILED', skipped:'SKIPPED', manual:'MANUAL_REVIEW ⚑'
+};
+
+const STATUS_ICONS = {
+  pending:'○', in_progress:'⚡', success:'✓', failed:'✗', skipped:'⏭', manual:'⚑'
+};
+
+function buildCard(broker) {
+  const card = document.createElement('div');
+  card.className = `card ${broker.status || 'pending'}`;
+  card.dataset.id     = broker.id;
+  card.dataset.status = broker.status || 'pending';
+  card.addEventListener('click', () => openDetail(broker.id));
+
+  // Corner accents (SEN-NIN style)
+  const cbl = document.createElement('div'); cbl.className = 'card-corner-bl';
+  const cbr = document.createElement('div'); cbr.className = 'card-corner-br';
+
+  // Top row: strategy badge + status icon
+  const top = document.createElement('div');
+  top.className = 'card-top';
+
+  const strat = document.createElement('span');
+  strat.className = `card-strategy s${broker.strategy}`;
+  strat.textContent = `S${broker.strategy}`;
+
+  const icon = document.createElement('span');
+  icon.className = 'card-status-icon';
+  icon.textContent = STATUS_ICONS[broker.status || 'pending'];
+
+  top.append(strat, icon);
+
+  // Divider
+  const div = document.createElement('div');
+  div.className = 'card-divider';
+
+  // Name
+  const name = document.createElement('div');
+  name.className = 'card-name';
+  name.textContent = broker.name;
+
+  // Scanline (shown only on in_progress)
+  const scan = document.createElement('div');
+  scan.className = 'scan-line';
+
+  // Status row
+  const statusRow = document.createElement('div');
+  statusRow.className = 'card-status';
+  const dot = document.createElement('div');
+  dot.className = 'status-dot';
+  const txt = document.createElement('span');
+  txt.textContent = STATUS_LABELS[broker.status || 'pending'];
+  statusRow.append(dot, txt);
+
+  card.append(cbl, cbr, top, div, name, scan, statusRow);
+
+  // 3D tilt on hover (SEN-NIN panel feel)
+  card.addEventListener('mousemove', e => {
+    const r = card.getBoundingClientRect();
+    const rx = -(((e.clientY - r.top)  / r.height) - 0.5) * 14;
+    const ry =  (((e.clientX - r.left) / r.width)  - 0.5) * 14;
+    card.style.transform = `perspective(500px) rotateX(${rx}deg) rotateY(${ry}deg) scale(1.03)`;
+    card.style.zIndex = '5';
+  });
+  card.addEventListener('mouseleave', () => {
+    card.style.transform = '';
+    card.style.zIndex = '';
+  });
+
+  state[broker.id] = {
+    status:   broker.status || 'pending',
+    strategy: broker.strategy,
+    name:     broker.name,
+    url:      broker.url   || '',
+    notes:    broker.notes || '',
+    el: card, icon, dot, txt, scan
+  };
+
+  return card;
+}
+
+function updateCard(broker) {
+  const s = state[broker.id];
+  if (!s) return;
+  const prev = s.status;
+  const next = broker.status;
+  if (prev === next) return;
+  s.status = next;
+
+  const el = s.el;
+  el.classList.remove('pending','in_progress','success','failed','skipped','manual');
+  el.classList.add(next);
+  el.dataset.status = next;
+  // Re-apply active filter
+  if (activeFilter !== 'all' && next !== activeFilter) el.style.display = 'none';
+  else el.style.display = '';
+
+  s.icon.textContent = STATUS_ICONS[next] || '?';
+  s.txt.textContent  = STATUS_LABELS[next] || next.toUpperCase();
+  s.scan.style.display = next === 'in_progress' ? 'block' : 'none';
+
+  updateRadarDot(broker.id, next);
+  logForStatusChange({ id: broker.id, name: s.name, strategy: s.strategy }, next);
+
+  // Effects
+  if (next === 'success') {
+    el.style.animation = 'success-bg 0.8s ease forwards';
+    setTimeout(() => { el.style.animation = ''; }, 900);
+    explodeAt(el, '#00ff66');
+  }
+  if (next === 'failed') {
+    el.style.animation = 'glitch 0.45s ease 0s 2';
+    setTimeout(() => { el.style.animation = ''; }, 1000);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  PIXEL PARTICLE EXPLOSION
+// ══════════════════════════════════════════════════════════════════
+function explodeAt(el, color) {
+  const r = el.getBoundingClientRect();
+  const cx = r.left + r.width/2, cy = r.top + r.height/2;
+  for (let i = 0; i < 12; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    const angle = (i/12)*Math.PI*2 + Math.random()*0.4;
+    const dist  = 25 + Math.random()*40;
+    const size  = 3 + Math.floor(Math.random()*5);
+    p.style.cssText = `left:${cx}px;top:${cy}px;width:${size}px;height:${size}px;
+      background:${color};--dx:${+(Math.cos(angle)*dist).toFixed(1)}px;
+      --dy:${+(Math.sin(angle)*dist).toFixed(1)}px;`;
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 700);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  STATS & HUD
+// ══════════════════════════════════════════════════════════════════
+function updateStats(stats) {
+  document.getElementById('num-total').textContent   = stats.total;
+  document.getElementById('num-success').textContent = stats.success;
+  document.getElementById('num-active').textContent  = stats.in_progress;
+  document.getElementById('num-failed').textContent  = stats.failed;
+  document.getElementById('num-skipped').textContent = stats.skipped;
+  document.getElementById('num-manual').textContent  = stats.manual;
+
+  const done = stats.success + stats.failed + stats.skipped + stats.manual;
+  const pct  = stats.total > 0 ? Math.round(done/stats.total*100) : 0;
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-pct').textContent  = pct + '% CLEARANCE_PCT';
+  document.getElementById('hud-clearance').textContent = `${done} / ${stats.total}`;
+  document.getElementById('hud-time').textContent      = new Date().toTimeString().slice(0,8);
+}
+
+function initGrid(brokers) {
+  const grid = document.getElementById('broker-grid');
+  grid.innerHTML = '';
+  const sorted = [...brokers].sort((a,b) => a.strategy - b.strategy || a.name.localeCompare(b.name));
+  initRadar(sorted);
+  sorted.forEach(b => grid.appendChild(buildCard(b)));
+  document.getElementById('grid-count').textContent = `${sorted.length} TARGETS LOADED`;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  TAB SWITCHER
+// ══════════════════════════════════════════════════════════════════
+function setTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  const tv = document.getElementById('target-view');
+  const lv = document.getElementById('log-view');
+  if (tab === 'targets') {
+    tv.style.display = 'contents';
+    lv.style.display = 'none';
+  } else {
+    tv.style.display = 'none';
+    lv.style.display = 'flex';
+    setTimeout(() => { lv.scrollTop = lv.scrollHeight; }, 50);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  FILTER
+// ══════════════════════════════════════════════════════════════════
+let activeFilter = 'all';
+function applyFilter(f, btn) {
+  activeFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('#broker-grid .card').forEach(card => {
+    const st = card.dataset.status || 'pending';
+    card.style.display = (f === 'all' || st === f) ? '' : 'none';
+  });
+  const visible = document.querySelectorAll('#broker-grid .card:not([style*="none"])').length;
+  document.getElementById('grid-count').textContent = `${visible} TARGETS`;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  DETAIL MODAL
+// ══════════════════════════════════════════════════════════════════
+const STATUS_COLORS = {
+  pending:'dim', in_progress:'yellow', success:'green',
+  failed:'red', skipped:'dim', manual:'orange'
+};
+const STRAT_NAMES = {
+  1:'AFFILIATE_CASCADE', 2:'HIDDEN_OPT_OUT', 3:'PRIVACY_DISCOVERY',
+  4:'BUSINESS_DIRS',     5:'WHOIS_EMAIL',    6:'PROFILE_BROKERS'
+};
+
+function openDetail(id) {
+  const s = state[id];
+  if (!s) return;
+  const col  = STATUS_COLORS[s.status] || 'dim';
+  const badge = document.getElementById('detail-strategy-badge');
+  badge.textContent = `S${s.strategy}`;
+  badge.className = `card-strategy s${s.strategy}`;
+  const rows = [
+    ['BROKER_ID',  id,                             'cyan'],
+    ['NAME',       s.name,                         'text'],
+    ['STRATEGY',   `S${s.strategy} — ${STRAT_NAMES[s.strategy]||''}`, 'cyan'],
+    ['STATUS',     (s.status||'pending').toUpperCase(), col],
+    ['URL',        s.url || '—',                   s.url ? 'dim' : 'dim'],
+    ['NOTES',      s.notes || '—',                 s.notes ? 'text' : 'dim'],
+  ];
+  document.getElementById('detail-content').innerHTML = rows.map(([k,v,c]) =>
+    `<div class="detail-row"><span class="detail-key">${k}</span><span class="detail-val ${c}">${v}</span></div>`
+  ).join('');
+  document.getElementById('detail-modal').classList.add('open');
+}
+function closeDetail() {
+  document.getElementById('detail-modal').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+
+// ══════════════════════════════════════════════════════════════════
+//  DEMO SIMULATION
+// ══════════════════════════════════════════════════════════════════
+let demoRunning = false;
+let wsRetry = null;
+
+function setMode(live) {
+  const b = document.getElementById('mode-badge');
+  b.textContent = live ? 'LIVE' : 'DEMO';
+  b.className   = live ? 'live' : 'demo';
+}
+
+function demoStats() {
+  const st = { total:0, pending:0, in_progress:0, success:0, failed:0, skipped:0, manual:0 };
+  Object.values(state).forEach(s => { st.total++; st[s.status] = (st[s.status]||0)+1; });
+  return st;
+}
+
+function demoOutcome(strategy) {
+  const r = Math.random();
+  if (strategy === 4) return r < 0.78 ? 'skipped' : 'success';
+  if (strategy === 6) return r < 0.25 ? 'manual' : r < 0.70 ? 'success' : 'failed';
+  return r < 0.76 ? 'success' : r < 0.91 ? 'failed' : 'manual';
+}
+
+async function startDemo() {
+  if (demoRunning) return;
+  demoRunning = true;
+  setMode(false);
+  addLogEntry('> DEMO_MODE: ACTIVE', 'yellow');
+  addLogEntry('> LOADING_BATCH_1...', 'cyan');
+
+  const order = Object.values(state)
+    .sort((a,b) => a.strategy - b.strategy || a.name.localeCompare(b.name));
+
+  for (const s of order) {
+    if (!demoRunning) break;
+    if (s.status !== 'pending') continue;
+
+    updateCard({ id: s.el.dataset.id, status: 'in_progress' });
+    s.status = 'in_progress';
+    updateStats(demoStats());
+
+    const delay = 900 + Math.floor(Math.random()*2800);
+    await new Promise(r => setTimeout(r, delay));
+    if (!demoRunning) break;
+
+    const final = demoOutcome(s.strategy);
+    updateCard({ id: s.el.dataset.id, status: final });
+    s.status = final;
+    updateStats(demoStats());
+
+    await new Promise(r => setTimeout(r, 320));
+  }
+
+  demoRunning = false;
+  addLogEntry('> BATCH_COMPLETE: review results', 'cyan');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  WEBSOCKET (auto-falls back to demo)
+// ══════════════════════════════════════════════════════════════════
+function connectWS() {
+  let ws;
+  try { ws = new WebSocket('ws://localhost:8080/ws'); } catch { startDemo(); return; }
+
+  ws.onopen    = () => { setMode(true); demoRunning = false; if (wsRetry) clearTimeout(wsRetry); addLogEntry('> SERVER_LINK: ESTABLISHED', 'green'); };
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'state') { initGrid(msg.brokers); if (msg.stats) updateStats(msg.stats); }
+    else if (msg.type === 'update') { updateCard(msg.broker); if (msg.stats) updateStats(msg.stats); }
+  };
+  ws.onclose = ws.onerror = () => {
+    setMode(false);
+    if (!demoRunning) startDemo();
+    wsRetry = setTimeout(connectWS, 6000);
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  BOOTSTRAP
+// ══════════════════════════════════════════════════════════════════
+(function bootstrap() {
+  initGrid(BROKER_DATA.map(b => ({ ...b, status:'pending' })));
+  updateStats({ total:85, pending:85, in_progress:0, success:0, failed:0, skipped:0, manual:0 });
+  connectWS();
+
+  // Clock
+  setInterval(() => {
+    document.getElementById('hud-time').textContent = new Date().toTimeString().slice(0,8);
+  }, 1000);
+})();
+</script>
+</body>
+</html>

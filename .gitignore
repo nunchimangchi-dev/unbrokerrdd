@@ -1,0 +1,28 @@
+# ── Personal data & secrets ──────────────────────────────────────────
+# .env.example (template, no real values) is fine to commit
+.env
+.env.*
+!.env.example
+
+secrets/
+*.pem
+*.key
+
+# ── Runtime state ─────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+databrokergo.db
+
+# ── OS / editor ───────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# ── Local dev tool config (not meant for public consumption) ──────────
+.claude/settings.local.json
+
+# ── Go build artifacts ────────────────────────────────────────────────
+/databrokergo          # compiled binary
+dist/

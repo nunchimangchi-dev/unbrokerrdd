@@ -1,0 +1,22 @@
+/* ~/Projects/aether-core-assets/aether-core.css */
+
+:root {
+    /* Global Core Color Palette */
+    --bg-obsidian: #090d16;
+    --bg-panel: #0f172a;
+    --bg-card: #1e2538;
+    --text-primary: #e2e8f0;
+    --text-muted: #64748b;
+    --accent-cyan: #38bdf8;
+    
+    /* Global Status Systems Indicators */
+    --status-stable: #34d399;   /* Success / Cleared */
+    --status-scanning: #fbbf24; /* Active / Processing */
+    --status-emergency: #ef4444;/* Warning / Failed */
+
+    /* Universal UI Spacing Styles */
+    --font-mono: 'Courier New', Courier, monospace;
+    --panel-padding: 20px;
+    --border-radius: 6px;
+    --border-spec: 1px solid #1e293b;
+}
