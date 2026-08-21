@@ -213,17 +213,6 @@ header {
   font-family: var(--font-mono);
 }
 
-/* Radar sweep animation */
-.radar-sweep-group {
-  transform-origin: 0px 0px;
-  animation: radar-spin 4s linear infinite;
-}
-
-@keyframes radar-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-
 /* Radar dot classes */
 .radar-dot {
   transition: fill 0.4s ease;
@@ -804,7 +793,7 @@ header {
       <!-- Progress -->
       <div class="progress-wrap">
         <div class="progress-track"><div id="progress-fill"></div></div>
-        <div id="progress-pct">0% CLEARANCE_PCT</div>
+        <div id="progress-pct">0% cleared</div>
       </div>
 
       <!-- TARGET_LIST view (shown by default) -->
@@ -1237,7 +1226,7 @@ function updateStats(stats) {
   const done = stats.success + stats.failed + stats.skipped + stats.manual;
   const pct  = stats.total > 0 ? Math.round(done/stats.total*100) : 0;
   document.getElementById('progress-fill').style.width = pct + '%';
-  document.getElementById('progress-pct').textContent  = pct + '% CLEARANCE_PCT';
+  document.getElementById('progress-pct').textContent  = pct + '% cleared';
   document.getElementById('hud-clearance').textContent = `${done} / ${stats.total}`;
   document.getElementById('hud-time').textContent      = new Date().toTimeString().slice(0,8);
 }
