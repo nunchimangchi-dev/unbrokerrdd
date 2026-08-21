@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DATABROKER.exe</title>
+  <title>unbrokerrdd — Privacy Dashboard</title>
   <link rel="stylesheet" href="aether-core.css">
   <style>
 /* ── Design Tokens ───────────────────────────────────────────────── */
@@ -261,25 +261,45 @@ header {
 }
 
 #log-entries {
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 10px;
   overflow-y: auto;
   flex: 1;
   max-height: 250px;
   padding-right: 4px;
+  position: relative;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  padding-left: 14px;
+  margin-left: 6px;
 }
 
 .log-line {
-  font-size: 10px; line-height: 1.5;
-  font-family: var(--font-mono);
+  font-size: 11px; line-height: 1.4;
+  font-family: var(--font-sans);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  position: relative;
+  color: var(--text-muted);
   animation: log-fade-in 0.25s ease;
 }
+.log-line::before {
+  content: '';
+  position: absolute;
+  left: -18px; top: 4px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
 .log-line.cyan   { color: var(--accent-light); }
+.log-line.cyan::before { background: var(--accent-light); }
 .log-line.green  { color: var(--green); }
+.log-line.green::before { background: var(--green); }
 .log-line.red    { color: var(--red); }
+.log-line.red::before { background: var(--red); }
 .log-line.yellow { color: var(--yellow); }
+.log-line.yellow::before { background: var(--yellow); }
 .log-line.orange { color: var(--orange); }
+.log-line.orange::before { background: var(--orange); }
 .log-line.dim    { color: var(--text-dim); }
+.log-line.dim::before { background: var(--text-dim); }
 
 @keyframes log-fade-in {
   from { opacity: 0; transform: translateX(-4px); }
@@ -568,17 +588,45 @@ header {
 /* ── Log View ──────────────────────────────────────────────────────── */
 #log-view {
   display: none; flex: 1; overflow-y: auto;
-  padding: 20px 24px; font-size: 12px; line-height: 1.8; letter-spacing: 0.2px;
-  flex-direction: column; gap: 1px;
+  padding: 24px; font-size: 13px;
+  flex-direction: column; gap: 0;
 }
-.lv-entry { display: flex; gap: 14px; padding: 4px 0; border-bottom: 1px solid var(--border-dim); }
-.lv-ts   { color: var(--text-dim); flex-shrink: 0; font-size: 10px; font-family: var(--font-mono); margin-top: 2px; }
-.lv-txt  { color: var(--accent-light); flex: 1; word-break: break-word; }
+.log-view-header {
+  display: flex; gap: 24px; padding: 12px 16px;
+  border-bottom: 2px solid var(--border);
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+.col-ts { min-width: 140px; flex-shrink: 0; }
+.col-event { flex: 1; }
+
+.lv-entry {
+  display: flex; gap: 24px; padding: 12px 16px;
+  border-bottom: 1px solid var(--border-dim);
+  align-items: center;
+  transition: background-color 0.15s ease;
+}
+.lv-entry:hover {
+  background-color: rgba(255, 255, 255, 0.01);
+}
+.lv-ts {
+  color: var(--text-muted); flex-shrink: 0;
+  font-size: 11px; font-family: var(--font-mono);
+  min-width: 140px;
+}
+.lv-txt {
+  color: var(--text-primary); flex: 1;
+  word-break: break-word;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+}
 .lv-txt.green  { color: var(--green); }
 .lv-txt.red    { color: var(--red); }
 .lv-txt.yellow { color: var(--yellow); }
 .lv-txt.orange { color: var(--orange); }
-.lv-txt.dim    { color: var(--text-dim); }
+.lv-txt.dim    { color: var(--text-dim); font-weight: 400; }
 
 /* ── Detail Modal ──────────────────────────────────────────────────── */
 #detail-modal {
@@ -667,104 +715,48 @@ header {
     <!-- ── Sidebar ──────────────────────────────────────────────── -->
     <aside class="sidebar">
 
-      <!-- Radar -->
+      <!-- Protection Status -->
       <div class="panel radar-wrap">
         <div class="panel-header">
-          BROKER STATUS
-          <span class="live-indicator">LIVE FEED</span>
+          Protection Status
+          <span class="live-indicator">Live Scan</span>
         </div>
         <svg id="radar-svg" class="radar-svg" viewBox="-100 -100 200 200">
-          <defs>
-            <radialGradient id="radarBg" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-              <stop offset="0%"   stop-color="#0a2040" stop-opacity="1"/>
-              <stop offset="100%" stop-color="#040818" stop-opacity="1"/>
-            </radialGradient>
-            <radialGradient id="sweepGrad" cx="0" cy="0" r="90" gradientUnits="userSpaceOnUse">
-              <stop offset="0%"   stop-color="rgba(0,200,255,0.5)"/>
-              <stop offset="70%"  stop-color="rgba(0,200,255,0.15)"/>
-              <stop offset="100%" stop-color="rgba(0,200,255,0)"/>
-            </radialGradient>
-            <clipPath id="radarClip"><circle r="90"/></clipPath>
-          </defs>
-
-          <!-- Background -->
-          <circle r="90" fill="url(#radarBg)"/>
-
-          <!-- Grid (clipped) -->
-          <g clip-path="url(#radarClip)" stroke="rgba(0,200,255,0.07)" stroke-width="0.5">
-            <!-- Horizontal lines -->
-            <line x1="-90" y1="-70" x2="90" y2="-70"/>
-            <line x1="-90" y1="-50" x2="90" y2="-50"/>
-            <line x1="-90" y1="-30" x2="90" y2="-30"/>
-            <line x1="-90" y1="-10" x2="90" y2="-10"/>
-            <line x1="-90" y1="10"  x2="90" y2="10"/>
-            <line x1="-90" y1="30"  x2="90" y2="30"/>
-            <line x1="-90" y1="50"  x2="90" y2="50"/>
-            <line x1="-90" y1="70"  x2="90" y2="70"/>
-            <!-- Vertical lines -->
-            <line x1="-70" y1="-90" x2="-70" y2="90"/>
-            <line x1="-50" y1="-90" x2="-50" y2="90"/>
-            <line x1="-30" y1="-90" x2="-30" y2="90"/>
-            <line x1="-10" y1="-90" x2="-10" y2="90"/>
-            <line x1="10"  y1="-90" x2="10"  y2="90"/>
-            <line x1="30"  y1="-90" x2="30"  y2="90"/>
-            <line x1="50"  y1="-90" x2="50"  y2="90"/>
-            <line x1="70"  y1="-90" x2="70"  y2="90"/>
-          </g>
-
-          <!-- Radial lines -->
-          <g clip-path="url(#radarClip)" stroke="rgba(0,200,255,0.1)" stroke-width="0.5">
-            <line x1="0" y1="-90" x2="0"  y2="90"/>
-            <line x1="-90" y1="0" x2="90" y2="0"/>
-            <line x1="-64" y1="-64" x2="64" y2="64"/>
-            <line x1="64"  y1="-64" x2="-64" y2="64"/>
-          </g>
-
-          <!-- Sweep (animated) -->
-          <g class="radar-sweep-group" clip-path="url(#radarClip)">
-            <!-- Sector fill -->
-            <path d="M0,0 L0,-90 A90,90,0,0,1,45,-78 Z" fill="url(#sweepGrad)" opacity="0.8"/>
-            <!-- Leading edge line -->
-            <line x1="0" y1="0" x2="0" y2="-90"
-                  stroke="rgba(0,200,255,0.7)" stroke-width="1"/>
-          </g>
+          <!-- Background: clean flat dark circle with subtle border -->
+          <circle r="90" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
 
           <!-- Dots container (filled by JS) -->
           <g id="radar-dots"></g>
 
-          <!-- Concentric rings (above dots) -->
-          <circle r="32" fill="none" stroke="rgba(0,200,255,0.18)" stroke-width="0.5"/>
-          <circle r="60" fill="none" stroke="rgba(0,200,255,0.14)" stroke-width="0.5"/>
-          <circle r="85" fill="none" stroke="rgba(0,200,255,0.22)" stroke-width="1"/>
+          <!-- Concentric rings representing Strategy clusters -->
+          <circle r="32" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+          <circle r="60" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+          <circle r="85" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
 
-          <!-- Ring labels -->
-          <text x="33" y="2"  font-family="Space Mono,monospace" font-size="4.5" fill="rgba(0,200,255,0.4)">S1-2</text>
-          <text x="61" y="2"  font-family="Space Mono,monospace" font-size="4.5" fill="rgba(0,200,255,0.35)">S3-4</text>
-          <text x="72" y="-70" font-family="Space Mono,monospace" font-size="4.5" fill="rgba(0,200,255,0.3)">S5-6</text>
-
-          <!-- Center crosshair -->
-          <circle r="3" fill="var(--cyan)" opacity="0.9"/>
-          <circle r="6" fill="none" stroke="rgba(0,200,255,0.4)" stroke-width="0.5"/>
+          <!-- Ring labels with clean, professional typography and sentence case -->
+          <text x="35" y="3" font-family="var(--font-sans)" font-size="4.5" fill="var(--text-dim)" opacity="0.8">Tiers 1-2</text>
+          <text x="63" y="3" font-family="var(--font-sans)" font-size="4.5" fill="var(--text-dim)" opacity="0.8">Tiers 3-4</text>
+          <text x="73" y="-72" font-family="var(--font-sans)" font-size="4.5" fill="var(--text-dim)" opacity="0.8">Tiers 5-6</text>
         </svg>
-        <div class="radar-label" id="radar-label">TARGET_SELECTION.exe</div>
+        <div class="radar-label" id="radar-label">Standing by</div>
         <span class="corner-br"></span><span class="corner-bl"></span>
       </div>
 
       <!-- Agent Log -->
       <div class="panel agent-log" style="flex:1; min-height: 160px;">
         <div class="panel-header">
-          AGENT TELEMETRY
-          <span class="live-indicator" id="agent-status-label">STANDBY</span>
+          Agent Telemetry
+          <span class="live-indicator" id="agent-status-label">Ready</span>
         </div>
 
         <div id="log-entries">
-          <div class="log-line dim">> SYSTEM_INIT: COMPLETE</div>
-          <div class="log-line dim">> BATCH_1: LOADED</div>
-          <div class="log-line cyan">> AWAITING_START...</div>
+          <div class="log-line dim">Security agent initialized</div>
+          <div class="log-line dim">Registry loaded (85 brokers active)</div>
+          <div class="log-line cyan">Ready to start scanning...</div>
         </div>
 
         <div class="signal-bar">
-          <span>SIGNAL:</span>
+          <span>Signal:</span>
           <span class="signal-blocks" id="signal-blocks">▪▪▪▪░</span>
           <span id="signal-pct">87%</span>
         </div>
@@ -820,29 +812,29 @@ header {
 
         <!-- Legend -->
         <div class="legend">
-          <span class="legend-item l1">■ S1 AFFILIATE_CASCADE</span>
-          <span class="legend-item l2">■ S2 HIDDEN_OPT_OUT</span>
-          <span class="legend-item l3">■ S3 PRIVACY_DISCOVERY</span>
-          <span class="legend-item l4">■ S4 BUSINESS_DIRS</span>
-          <span class="legend-item l5">■ S5 WHOIS_EMAIL</span>
-          <span class="legend-item l6">■ S6 PROFILE_BROKERS</span>
+          <span class="legend-item l1">Strategy 1: Affiliate Cascade</span>
+          <span class="legend-item l2">Strategy 2: Hidden Opt-Out</span>
+          <span class="legend-item l3">Strategy 3: Privacy Discovery</span>
+          <span class="legend-item l4">Strategy 4: Business Directories</span>
+          <span class="legend-item l5">Strategy 5: WHOIS & Email</span>
+          <span class="legend-item l6">Strategy 6: Profile Data Brokers</span>
         </div>
 
         <!-- Filter bar -->
         <div class="filter-bar">
-          <button class="filter-btn active" onclick="applyFilter('all',this)">ALL</button>
-          <button class="filter-btn" onclick="applyFilter('pending',this)">○ PENDING</button>
-          <button class="filter-btn" onclick="applyFilter('success',this)">✓ CLEARED</button>
-          <button class="filter-btn" onclick="applyFilter('failed',this)">✗ FAILED</button>
-          <button class="filter-btn" onclick="applyFilter('in_progress',this)">⚡ ACTIVE</button>
-          <button class="filter-btn" onclick="applyFilter('skipped',this)">⏭ SKIPPED</button>
-          <button class="filter-btn" onclick="applyFilter('manual',this)">⚑ MANUAL</button>
+          <button class="filter-btn active" onclick="applyFilter('all',this)">All</button>
+          <button class="filter-btn" onclick="applyFilter('pending',this)">○ Pending</button>
+          <button class="filter-btn" onclick="applyFilter('success',this)">✓ Removed</button>
+          <button class="filter-btn" onclick="applyFilter('failed',this)">✗ Failed</button>
+          <button class="filter-btn" onclick="applyFilter('in_progress',this)">⚡ In Progress</button>
+          <button class="filter-btn" onclick="applyFilter('skipped',this)">⏭ Skipped</button>
+          <button class="filter-btn" onclick="applyFilter('manual',this)">⚑ Needs Review</button>
         </div>
 
         <!-- Grid header -->
         <div class="grid-header">
-          TARGET REGISTRY
-          <span class="count" id="grid-count">85 TARGETS LOADED</span>
+          Target Registry
+          <span class="count" id="grid-count">85 targets loaded</span>
         </div>
 
         <!-- Broker Grid -->
@@ -851,7 +843,12 @@ header {
       </div><!-- #target-view -->
 
       <!-- AGENT_LOG view (shown when log tab active) -->
-      <div id="log-view"></div>
+      <div id="log-view">
+        <div class="log-view-header">
+          <span class="col-ts">Timestamp</span>
+          <span class="col-event">Event Activity</span>
+        </div>
+      </div>
 
     </main>
   </div>
@@ -860,20 +857,20 @@ header {
   <footer class="hud-bar">
     <div class="hud-item active">
       <div class="dot"></div>
-      AGENT_ACTIVE
+      Agent active
     </div>
     <div class="hud-item">
-      BATCH: <span class="hud-val">BATCH_1 / TRUTHFINDER_CASCADE.exe</span>
+      Batch: <span class="hud-val">1 (TruthFinder Cascade)</span>
     </div>
     <div class="hud-item">
-      TARGET: <span id="hud-target">—</span>
+      Target: <span id="hud-target">—</span>
     </div>
     <div class="hud-spacer"></div>
     <div class="hud-item">
-      CLEARED: <span id="hud-clearance" class="hud-val">0 / 85</span>
+      Removed: <span id="hud-clearance" class="hud-val">0 / 85</span>
     </div>
     <div class="hud-item">
-      PRIVACY_CORE: <span style="color:var(--green)">STABLE</span>
+      System status: <span style="color:var(--green)">Protected</span>
     </div>
     <div class="hud-item" id="hud-time" style="color:var(--dim-text)">--:--:--</div>
   </footer>
@@ -1067,32 +1064,32 @@ function addLogEntry(text, color = 'cyan') {
 
 const LOG_TEMPLATES = {
   in_progress: {
-    1: n => `> TARGETING ${n} [AFFILIATE_CASCADE]`,
-    2: n => `> OPT_OUT_PAGE: ${n}`,
-    3: n => `> PRIVACY_SCRAPE: ${n}`,
-    4: n => `> DIR_SEARCH: ${n}`,
-    5: n => `> WHOIS_QUERY: ${n}`,
-    6: n => `> PROFILE_SCAN: ${n}`,
+    1: n => `Scanning ${n} (Affiliate Cascade)`,
+    2: n => `Evaluating opt-out page: ${n}`,
+    3: n => `Scanning public directory listings: ${n}`,
+    4: n => `Searching business directories: ${n}`,
+    5: n => `Performing WHOIS contact query: ${n}`,
+    6: n => `Analyzing profile broker records: ${n}`,
   },
-  success:  n => `> OPT_OUT_CONFIRMED: ${n} ✓`,
-  failed:   n => `> FAILED: ${n} — no path found`,
-  skipped:  n => `> SKIPPED: ${n} — no personal data`,
-  manual:   n => `> MANUAL_REVIEW: ${n} ⚑`,
+  success:  n => `Opt-out completed successfully: ${n} ✓`,
+  failed:   n => `Opt-out failed: ${n} (no response or search failure)`,
+  skipped:  n => `Opt-out skipped: ${n} (no matching personal records found)`,
+  manual:   n => `Manual review required: ${n} ⚑`,
 };
 
 function logForStatusChange(broker, status) {
   const name = broker.name;
   if (status === 'in_progress') {
     const fn = LOG_TEMPLATES.in_progress[broker.strategy];
-    addLogEntry(fn ? fn(name) : `> TARGETING ${name}`, 'yellow');
+    addLogEntry(fn ? fn(name) : `Targeting ${name}`, 'yellow');
     document.getElementById('hud-target').textContent = name;
-    document.getElementById('radar-label').textContent = name.toUpperCase().replace(/\./g, '_');
-    document.getElementById('agent-status-label').textContent = 'PROCESSING';
+    document.getElementById('radar-label').textContent = name;
+    document.getElementById('agent-status-label').textContent = 'Processing';
   } else {
     const colorMap = { success:'green', failed:'red', skipped:'dim', manual:'orange' };
     const fn = LOG_TEMPLATES[status];
     if (fn) addLogEntry(fn(name), colorMap[status] || 'cyan');
-    if (status !== 'in_progress') document.getElementById('agent-status-label').textContent = 'STANDBY';
+    if (status !== 'in_progress') document.getElementById('agent-status-label').textContent = 'Ready';
   }
 }
 
@@ -1102,8 +1099,8 @@ function logForStatusChange(broker, status) {
 const state = {};
 
 const STATUS_LABELS = {
-  pending:'PENDING', in_progress:'WORKING...',
-  success:'CLEARED', failed:'FAILED', skipped:'SKIPPED', manual:'MANUAL_REVIEW ⚑'
+  pending:'Pending', in_progress:'In progress',
+  success:'Removed', failed:'Failed', skipped:'Skipped', manual:'Needs review ⚑'
 };
 
 const STATUS_ICONS = {
@@ -1354,8 +1351,8 @@ async function startDemo() {
   if (demoRunning) return;
   demoRunning = true;
   setMode(false);
-  addLogEntry('> DEMO_MODE: ACTIVE', 'yellow');
-  addLogEntry('> LOADING_BATCH_1...', 'cyan');
+  addLogEntry('Demo mode activated', 'yellow');
+  addLogEntry('Loading target data batch...', 'cyan');
 
   const order = Object.values(state)
     .sort((a,b) => a.strategy - b.strategy || a.name.localeCompare(b.name));
@@ -1381,7 +1378,7 @@ async function startDemo() {
   }
 
   demoRunning = false;
-  addLogEntry('> BATCH_COMPLETE: review results', 'cyan');
+  addLogEntry('Batch complete. Please review results.', 'cyan');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1391,7 +1388,7 @@ function connectWS() {
   let ws;
   try { ws = new WebSocket('ws://localhost:8080/ws'); } catch { startDemo(); return; }
 
-  ws.onopen    = () => { setMode(true); demoRunning = false; if (wsRetry) clearTimeout(wsRetry); addLogEntry('> SERVER_LINK: ESTABLISHED', 'green'); };
+  ws.onopen    = () => { setMode(true); demoRunning = false; if (wsRetry) clearTimeout(wsRetry); addLogEntry('Server connection established', 'green'); };
   ws.onmessage = e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'state') { initGrid(msg.brokers); if (msg.stats) updateStats(msg.stats); }
