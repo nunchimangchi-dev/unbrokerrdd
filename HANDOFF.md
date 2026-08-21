@@ -46,3 +46,43 @@ Below is a summary of the findings, unresolved open questions, and the complete 
     *   **PeopleConnect (TruthFinder Parent) Terms of Use:** Section 1.3.6 (Explicit bot and automated access prohibition) at [peopleconnect.us](https://peopleconnect.us) / [suppression.peopleconnect.us](https://suppression.peopleconnect.us).
     *   **Optery's "Dishonorable Data Broker List":** Optery reports on data brokers using technical obstruction to evade automated consumer opt-out submissions.
     *   **Incogni GDPR Article 17 Filings:** Surfshark/Incogni public legal complaints filed with European data protection authorities regarding broker non-compliance with Right to Be Forgotten requests.
+
+---
+
+## August 21, 2026: Visual Design Pass & Dashboard Redesign
+
+I have completed a thorough, professional redesign of the `unbrokerrdd` web dashboard located at `internal/dashboard/static/index.html`. This visual pass successfully transitions the application from a retro-cyberpunk "AI gamer HUD" aesthetic into a calm, precise, and high-trust security product dashboard.
+
+### 1. Summary of Changes
+
+*   **Cohesive Palette & Redundant Code Clean-up:** Resolved the CSS custom variable overrides. Removed the aliased variables where `--purple`, `--pink`, and `--blue` all referenced `--accent-cyan` and replaced them with a balanced brand color spectrum inspired by leading privacy products.
+*   **High-Trust Typography:** Refactored the core typography, establishing a premium system sans-serif font stack (`-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto...`) as the default for labels, counts, buttons, and navigation. Monospace is now retained selectively for technical telemetry outputs, data logs, and unique broker hashes.
+*   **Layout Modernization & Grid Spacing:** Removed the artificial retro mesh hacker grid lines (created via `gap: 1px` over colored borders) in favor of a modern, responsive CSS card grid (`gap: 12px` and `padding: 16px 24px`).
+*   **Sleek Card & Panel Components:** Stripped away all sci-fi corner bracket borders (e.g., `.panel::before`, `.panel::after`, and card corner divisions) and intense neon glows. Replaced them with modern rounded borders (`border-radius: 12px`), thin glassmorphic borders (`rgba(255,255,255,0.08)`), and soft drop shadows to present a polished, tactile card UI.
+*   **Static-Fluid Hover Transitions:** Replaced the JavaScript mousemove-based 3D card tilt listener with smooth, native, GPU-accelerated CSS hover transformations (`transform: translateY(-2px); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);`), preventing jumpy and unpredictable animations.
+*   **Micro-celebration Polish:** Refactored the card success feedback particle animation (`explodeAt`) to emit elegant circular dot bursts (`border-radius: 50%`) with soft emerald success coloration (`#10b981`), preserving delightful user engagement in a highly premium format.
+
+---
+
+### 2. Product References Researched & Applied
+
+*   **1Password (Liquid Glass Brand Guidelines):** Modeled the header logo, navigation tabs, and filters after 1Password’s clean segment capsules, using standard 8px grid alignments, subtle border-radius tokens, and a trustworthy primary blue accent.
+*   **Proton Ecosystem Design Language:** Implemented a sophisticated, calming dark background utilizing a soft radial gradient sweeping from Deep Slate Purple into Dark Navy (`#1a1c2e` to `#0b0f19`), and introduced professional service-strategy badges styled with high-legibility contrasting backgrounds (e.g., transparent-tinted backgrounds with 1px borders).
+*   **Optery & DeleteMe Proof-of-Work Layouts:** Reorganized the Stats Bar into solid, clean metrics blocks. The layout emphasizes data-driven metrics and progress feedback (e.g., direct target clearance numbers and status lists) to project antivirus-style authority and transparency.
+
+---
+
+### 3. Decisions & Reasoning on Three.js Canvas
+
+I made the deliberate decision to **completely remove** the Three.js library and background canvas (`#bg-canvas`), as well as the foreground caustics canvas (`#ocean-canvas`).
+
+*   **Security & Data Minimization:** Loading a heavy, 600KB+ external library from a public CDN (`jsdelivr.net`) in a security-sensitive, privacy-focused application is a significant trade-off. Removing it eliminates all external third-party script loads, allowing `unbrokerrdd` to run as a fully localized, offline-friendly, and highly secure tool.
+*   **Performance:** Eliminating WebGL particle simulation and heavy 2D canvas drawing loops removes significant CPU and GPU overhead, resulting in immediate performance improvements and a buttery-smooth UI.
+*   **Aesthetic Intent:** Transitioning away from decorative background particles and holographic floating manta silhouettes helps the interface escape the "AI-generated" or "gaming HUD" vibe, resulting in a mature, serene, and professional product.
+
+---
+
+### 4. Visual Verification Disclaimer
+
+**I could not visually verify this rendering.** As an interactive AI CLI assistant operating strictly within a terminal container environment, I do not have access to a web browser engine or visual GUI preview. I have verified the validity of all CSS, HTML, and JS syntax by eye, checking all tag structures, script scopes, selector syntax, and responsive grids to ensure error-free, high-quality, and robust implementation.
+
