@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 
-	"databrokergo/internal/config"
-	"databrokergo/internal/db"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/config"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/db"
 )
 
 // Result is returned by every strategy agent after processing a broker.

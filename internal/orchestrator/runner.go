@@ -8,9 +8,9 @@ import (
 	"log"
 	"time"
 
-	"databrokergo/internal/agent"
-	"databrokergo/internal/config"
-	"databrokergo/internal/db"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/agent"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/config"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/db"
 )
 
 // BatchConfig controls how a batch run behaves.

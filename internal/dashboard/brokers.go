@@ -1,6 +1,6 @@
 package dashboard
 
-import "databrokergo/internal/db"
+import "github.com/nunchimangchi-dev/unbrokerrdd/internal/db"
 
 // Broker represents a single data broker target.
 type Broker struct {

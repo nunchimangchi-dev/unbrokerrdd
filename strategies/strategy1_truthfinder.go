@@ -11,9 +11,9 @@ import (
 
 	"github.com/chromedp/chromedp"
 
-	"databrokergo/internal/agent"
-	"databrokergo/internal/config"
-	"databrokergo/internal/db"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/agent"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/config"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/db"
 )
 
 // TruthFinderOptOutURL is the single submission point that covers all 7 affiliates.

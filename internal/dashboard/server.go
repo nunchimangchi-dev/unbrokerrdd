@@ -13,7 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"databrokergo/internal/db"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/db"
 )
 
 // dbBroker is an alias so the file compiles without repeating the import path.

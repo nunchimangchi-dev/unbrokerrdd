@@ -1,8 +1,31 @@
-# DATABROKER.deep
+# unbrokerrdd
 
 An AI-driven data broker opt-out orchestrator. It seeds a queue of 85 real US data brokers, walks each one through an opt-out strategy suited to that site, and tracks progress on a real-time dashboard.
 
 Built as a genuine attempt at solving a real privacy problem with an AI agent doing the meaningful decision-making — not a script with an LLM bolted on.
+
+## Before you run this
+
+**This costs real money, on your own Anthropic account.** Every non-dry-run
+broker submission calls Claude Haiku's vision API once, to validate the
+outcome from a post-submit screenshot — billed to whatever
+`ANTHROPIC_API_KEY` you supply. Check
+[Anthropic's current pricing](https://www.anthropic.com/pricing) before
+running this against real brokers; the exact cost depends on their pricing
+at the time you run it, not anything fixed here. `--dry-run` is completely
+free — it returns before ever calling the API or opening a browser, so
+explore the tool with it first.
+
+**A fragment of your PII leaves your machine, by design.** The validation
+screenshot is taken *after* your name/email have been entered into the
+broker's form, so it can visibly contain them — that screenshot gets sent
+to Anthropic's API as part of normal operation. This tool follows a
+minimal-data principle (see `.env.example` — no SSN, no DOB, nothing beyond
+what a given opt-out legally requires), which limits the blast radius, but
+doesn't eliminate it: your name and email are shared with Anthropic as a
+third party every time a broker submission actually runs. If that's not
+acceptable to you, `--dry-run` doesn't have this exposure at all, since it
+never takes a screenshot or calls the API.
 
 ## Current state
 
@@ -41,6 +64,12 @@ go run ./cmd/databrokergo reset --broker "backgroundcheckme"
 `ANTHROPIC_API_KEY` can also be supplied via the macOS Keychain instead of `.env` — see `internal/config/config.go`.
 
 The dashboard binds to `127.0.0.1` only.
+
+## Security & compliance
+
+[`docs/SECURITY-BASELINE.md`](docs/SECURITY-BASELINE.md) — audit results,
+what's clean, and what's open, adapted from the skyrise project standard to
+this project's actual shape (single-user local tool, not a hosted service).
 
 ## How this was built
 

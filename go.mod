@@ -1,6 +1,6 @@
-module databrokergo
+module github.com/nunchimangchi-dev/unbrokerrdd
 
-go 1.26
+go 1.26.7
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.44.1

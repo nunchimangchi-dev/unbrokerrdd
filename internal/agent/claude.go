@@ -117,13 +117,57 @@ Return a JSON object — ONLY the JSON, no other text:
 	return &sel, nil
 }
 
-// ValidateOutcome sends a post-submission screenshot to Claude Haiku and
-// determines whether the opt-out request was accepted.
+// domTextFailureSignals are strong, low-ambiguity failure indicators that
+// don't require visual judgment to trust. Deliberately narrow and literal —
+// see the asymmetry note on checkDomTextFailure below for why this list
+// stays conservative rather than trying to also catch success signals.
+var domTextFailureSignals = []string{
+	"invalid email",
+	// "captcha" is a broad substring match - it would also match a page that
+	// merely mentions CAPTCHA in unrelated copy (e.g. a footer note about bot
+	// protection), not just an active challenge. That's an accepted tradeoff:
+	// per the asymmetry above, over-triggering a "failure" is the safe
+	// direction to be wrong in, since it just costs a manual re-check rather
+	// than a false success.
+	"captcha",
+}
+
+// checkDomTextFailure looks for an unambiguous failure signal in domText,
+// skipping the Haiku vision call entirely when one is found.
+//
+// This is deliberately one-directional: it only ever returns a *failure*
+// determination, never a success one. The asymmetry is intentional — a
+// false "failed" costs the user a manual re-check, which is annoying but
+// safe. A false "success" would mean this tool reports a privacy removal
+// that never actually happened, which is a much worse failure mode for a
+// tool whose entire premise is trustworthy privacy removal. So potential
+// successes always still go through real vision validation; only the
+// clear-failure cases get the free, deterministic fast path.
+func checkDomTextFailure(domText string) (matched bool, message string) {
+	lower := strings.ToLower(domText)
+	for _, signal := range domTextFailureSignals {
+		if strings.Contains(lower, signal) {
+			return true, fmt.Sprintf("dom-text fast path: matched failure signal %q (no API call made)", signal)
+		}
+	}
+	return false, ""
+}
+
+// ValidateOutcome determines whether an opt-out request was accepted.
 // Returns (success, human-readable summary, error).
 //
 // domText is optional: pass up to 3000 chars of page innerText for additional
 // signal. Pass "" to rely on screenshot only.
+//
+// Checks domText for a clear failure signal first (free, no API call) before
+// falling back to Claude Haiku vision — see checkDomTextFailure for why this
+// only short-circuits on failure, never on success.
 func (v *Validator) ValidateOutcome(ctx context.Context, screenshotPNG []byte, siteName, domText string) (bool, string, error) {
+	if matched, message := checkDomTextFailure(domText); matched {
+		return false, message, nil
+	}
+
+
 	mime   := imgMIME(screenshotPNG)
 	imgB64 := base64.StdEncoding.EncodeToString(screenshotPNG)
 

@@ -8,12 +8,12 @@ import (
 	"strconv"
 	"time"
 
-	"databrokergo/internal/config"
-	"databrokergo/internal/dashboard"
-	"databrokergo/internal/db"
-	"databrokergo/internal/orchestrator"
-	"databrokergo/internal/agent"
-	"databrokergo/strategies"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/config"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/dashboard"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/db"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/orchestrator"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/agent"
+	"github.com/nunchimangchi-dev/unbrokerrdd/strategies"
 )
 
 const version = "0.1.0"
