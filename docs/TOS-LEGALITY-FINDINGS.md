@@ -63,7 +63,7 @@ The California Delete Act (SB 362), enacted in 2023, amended the CCPA to establi
 ### Current Rollout Status (As of August 21, 2026)
 *   **Launch & Enforcement:** The **Delete Request and Opt-Out Platform (DROP)** at [privacy.ca.gov/drop](https://privacy.ca.gov/drop) officially launched on **January 1, 2026**.
 *   **Mandatory Enforcement Switch-On:** As of **August 1, 2026** (very recently), data brokers are legally mandated to connect to the DROP platform at least **once every 45 days**, retrieve all pending deletion requests, and delete the consumers' data.
-*   **Adoption & Registration:** More than **450,000 California residents** have submitted deletion requests via DROP. Approximately **600 data brokers** are registered with the CPPA. Failure of a broker to process requests carries a severe administrative fine of **$200 per consumer, per day** (plus audit liabilities beginning in 2028).
+*   **Adoption & Registration:** More than **450,000 California residents** have submitted deletion requests via DROP *(unverified — not confirmed against CPPA's own DROP page directly; treat as unconfirmed until sourced)*. Approximately **600 data brokers** are registered with the CPPA *(independently confirmed 2026-08-21 against privacy.ca.gov/drop directly)*. Failure of a broker to process requests carries a severe administrative fine of **$200 per consumer, per day** (plus audit liabilities beginning in 2028).
 
 ### Positioning of `unbrokerrdd` vs. DROP
 While DROP is a revolutionary, legally backed mechanism, `unbrokerrdd` is not a competitor but a highly valuable, immediate, and broader alternative:
@@ -84,7 +84,7 @@ Despite operating massive bot networks that automate hundreds of thousands of fo
 ### B. Technical Obstruction & Regulatory Backlash
 Instead of suing, data brokers use **technical obstruction**—such as blocking the IP address ranges of known removal services, filtering emails from domains like `@incogni.com`, or introducing arbitrary CAPTCHAs and security gates. 
 
-This obstruction is increasingly being met with aggressive regulatory enforcement by the CPPA. For example, in **August 2026**, the CPPA issued its first wave of major enforcement actions, fining data broker **LocateSmarter LLC $116,490** for failing to register properly and for employing obstructive verification "dark patterns" (such as demanding partial SSNs) designed to block automated/authorized agent requests.
+This obstruction is increasingly being met with aggressive regulatory enforcement by the CPPA. For example, in **August 2026**, the CPPA issued its first wave of major enforcement actions, fining data broker **LocateSmarter LLC $116,490** for failing to register properly and for employing obstructive verification "dark patterns" (such as demanding partial SSNs) designed to block automated/authorized agent requests. *(Unverified — this specific enforcement action and dollar figure were not independently confirmed against a primary CPPA source; treat as unconfirmed until sourced directly.)*
 
 ### C. Legal Basis Claims
 *   **Incogni** aggressively leverages European GDPR "Right to Be Forgotten" (Article 17) complaints and California CCPA agent regulations, filing formal administrative complaints against non-cooperative brokers.
@@ -98,8 +98,14 @@ This obstruction is increasingly being met with aggressive regulatory enforcemen
 The current working strategy in the project codebase (`strategies/strategy1_truthfinder.go`) targets the TruthFinder affiliate cascade at `truthfinder.com/privacy-center` (owned by PeopleConnect).
 
 ### A. ToS Restrictions
-Section 1.3.6 of the PeopleConnect Terms of Use explicitly prohibits using:
+Section 2 ("Restrictions") of the PeopleConnect Terms of Use explicitly prohibits using:
 > "...automated or manual process, to access, acquire, copy, or monitor any portion of the Website... to obtain or access any materials, pictures, documents, services or any other information."
+
+*(Corrected 2026-08-21: independently re-verified directly against the live
+page at peopleconnect.us/terms-of-use/ — the quoted language is accurate and
+confirmed real, but it's under "Section 2 (Restrictions)," not "Section
+1.3.6" as originally cited. The original section-number citation appears to
+have been wrong; the substance was correct.)*
 
 They monitor high-volume access and actively block unauthorized automated traffic to their suppression centers.
 
