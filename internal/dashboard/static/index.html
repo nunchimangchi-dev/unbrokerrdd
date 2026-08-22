@@ -195,47 +195,39 @@ header {
   100% { box-shadow: 0 0 0 0 rgba(129, 199, 132, 0); }
 }
 
-/* ── Radar ─────────────────────────────────────────────────────────── */
-.radar-wrap {
+/* ── Exposure ring ─────────────────────────────────────────────────── */
+.exposure-wrap {
   display: flex; flex-direction: column; align-items: center;
+  padding-bottom: 20px;
 }
 
-.radar-svg {
-  width: 100%; max-width: 200px; height: auto; aspect-ratio: 1;
-  overflow: visible;
+.exposure-ring-wrap {
+  position: relative;
+  width: 100%; max-width: 140px;
+  margin-top: 4px;
 }
 
-.radar-label {
+.exposure-ring {
+  width: 100%; height: auto; display: block;
+}
+
+#exposure-arc {
+  transition: stroke-dashoffset 0.6s ease;
+}
+
+.exposure-pct {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 26px; font-weight: 700; color: var(--text-primary);
+}
+
+.exposure-label {
   font-size: 10px; color: var(--text-muted); font-weight: 500;
-  margin-top: 12px; text-align: center;
-  font-family: var(--font-mono);
+  letter-spacing: 0.3px; margin-top: 12px;
 }
 
-/* Radar dot classes */
-.radar-dot {
-  transition: fill 0.4s ease;
-}
-.radar-dot.in_progress {
-  fill: var(--yellow) !important;
-  animation: dot-pulse-anim 0.7s ease-in-out infinite;
-}
-.radar-dot.success {
-  fill: var(--green) !important;
-}
-.radar-dot.failed {
-  fill: var(--red) !important;
-}
-.radar-dot.skipped {
-  fill: var(--text-dim) !important; opacity: 0.6;
-}
-.radar-dot.manual {
-  fill: var(--orange) !important;
-  animation: dot-pulse-anim 1.5s ease-in-out infinite;
-}
-
-@keyframes dot-pulse-anim {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.3; }
+.exposure-caption {
+  font-size: 10px; color: var(--text-dim); margin-top: 6px;
 }
 
 /* ── Agent Log ─────────────────────────────────────────────────────── */
@@ -703,30 +695,23 @@ header {
     <aside class="sidebar">
 
       <!-- Protection Status -->
-      <div class="panel radar-wrap">
+      <div class="panel exposure-wrap">
         <div class="panel-header">
           Protection Status
-          <span class="live-indicator">Live Scan</span>
+          <span class="live-indicator">Live</span>
         </div>
-        <svg id="radar-svg" class="radar-svg" viewBox="-100 -100 200 200">
-          <!-- Background: clean flat dark circle with subtle border -->
-          <circle r="90" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
-
-          <!-- Dots container (filled by JS) -->
-          <g id="radar-dots"></g>
-
-          <!-- Concentric rings representing Strategy clusters -->
-          <circle r="32" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-          <circle r="60" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-          <circle r="85" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-
-          <!-- Ring labels with clean, professional typography and sentence case -->
-          <text x="35" y="3" font-family="var(--font-sans)" font-size="4.5" fill="var(--text-dim)" opacity="0.8">Tiers 1-2</text>
-          <text x="63" y="3" font-family="var(--font-sans)" font-size="4.5" fill="var(--text-dim)" opacity="0.8">Tiers 3-4</text>
-          <text x="73" y="-72" font-family="var(--font-sans)" font-size="4.5" fill="var(--text-dim)" opacity="0.8">Tiers 5-6</text>
-        </svg>
-        <div class="radar-label" id="radar-label">Standing by</div>
-        <span class="corner-br"></span><span class="corner-bl"></span>
+        <div class="exposure-ring-wrap">
+          <svg class="exposure-ring" viewBox="0 0 120 120">
+            <circle cx="60" cy="60" r="52" fill="none" stroke="var(--border)" stroke-width="10"/>
+            <circle id="exposure-arc" cx="60" cy="60" r="52" fill="none" stroke="var(--accent)"
+                    stroke-width="10" stroke-linecap="round"
+                    stroke-dasharray="326.7" stroke-dashoffset="326.7"
+                    transform="rotate(-90 60 60)"/>
+          </svg>
+          <div class="exposure-pct" id="exposure-pct">0%</div>
+        </div>
+        <div class="exposure-label">Protected</div>
+        <div class="exposure-caption" id="exposure-caption">0 of 85 cleared</div>
       </div>
 
       <!-- Agent Log -->
@@ -972,57 +957,6 @@ const BROKER_DATA = [
 ];
 
 // ══════════════════════════════════════════════════════════════════
-//  HASH UTILITY
-// ══════════════════════════════════════════════════════════════════
-function nameHash(s) {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return h;
-}
-
-// ══════════════════════════════════════════════════════════════════
-//  RADAR — Dot positioning & updates
-// ══════════════════════════════════════════════════════════════════
-const RING_RANGES = { 1:[18,30], 2:[28,40], 3:[43,55], 4:[52,64], 5:[66,77], 6:[74,86] };
-
-function radarPos(broker) {
-  const [rMin, rMax] = RING_RANGES[broker.strategy] || [45, 60];
-  const h  = Math.abs(nameHash(broker.id));
-  const r  = rMin + (h % (rMax - rMin + 1));
-  const a  = (h % 10007) / 10007 * Math.PI * 2;
-  return { x: +(Math.cos(a)*r).toFixed(2), y: +(Math.sin(a)*r).toFixed(2) };
-}
-
-const SVG_NS = 'http://www.w3.org/2000/svg';
-
-function initRadar(brokers) {
-  const g = document.getElementById('radar-dots');
-  g.innerHTML = '';
-  brokers.forEach(b => {
-    const pos = radarPos(b);
-    const c = document.createElementNS(SVG_NS, 'circle');
-    c.setAttribute('cx', pos.x);
-    c.setAttribute('cy', pos.y);
-    c.setAttribute('r', '2.5');
-    c.setAttribute('fill', '#334455');
-    c.setAttribute('id', `rdot-${b.id}`);
-    c.classList.add('radar-dot');
-    g.appendChild(c);
-  });
-}
-
-function updateRadarDot(id, status) {
-  const dot = document.getElementById(`rdot-${id}`);
-  if (!dot) return;
-  dot.className.baseVal = `radar-dot ${status}`;
-  const fills = {
-    pending:'#334455', in_progress:'#ffd700',
-    success:'#00ff66', failed:'#ff2244', skipped:'#4d9fff', manual:'#ff6b00'
-  };
-  dot.setAttribute('fill', fills[status] || '#334455');
-}
-
-// ══════════════════════════════════════════════════════════════════
 //  AGENT LOG
 // ══════════════════════════════════════════════════════════════════
 const MAX_LOG = 8;
@@ -1070,7 +1004,6 @@ function logForStatusChange(broker, status) {
     const fn = LOG_TEMPLATES.in_progress[broker.strategy];
     addLogEntry(fn ? fn(name) : `Targeting ${name}`, 'yellow');
     document.getElementById('hud-target').textContent = name;
-    document.getElementById('radar-label').textContent = name;
     document.getElementById('agent-status-label').textContent = 'Processing';
   } else {
     const colorMap = { success:'green', failed:'red', skipped:'dim', manual:'orange' };
@@ -1175,7 +1108,6 @@ function updateCard(broker) {
   s.txt.textContent  = STATUS_LABELS[next] || next.toUpperCase();
   s.scan.style.display = next === 'in_progress' ? 'block' : 'none';
 
-  updateRadarDot(broker.id, next);
   logForStatusChange({ id: broker.id, name: s.name, strategy: s.strategy }, next);
 
   // Effects
@@ -1227,13 +1159,20 @@ function updateStats(stats) {
   document.getElementById('progress-pct').textContent  = pct + '% cleared';
   document.getElementById('hud-clearance').textContent = `${done} / ${stats.total}`;
   document.getElementById('hud-time').textContent      = new Date().toTimeString().slice(0,8);
+
+  // Exposure ring reflects brokers actually cleared (success), not just processed.
+  const protectedPct = stats.total > 0 ? Math.round(stats.success/stats.total*100) : 0;
+  const circumference = 326.7;
+  document.getElementById('exposure-arc').style.strokeDashoffset =
+    circumference * (1 - protectedPct/100);
+  document.getElementById('exposure-pct').textContent = protectedPct + '%';
+  document.getElementById('exposure-caption').textContent = `${stats.success} of ${stats.total} cleared`;
 }
 
 function initGrid(brokers) {
   const grid = document.getElementById('broker-grid');
   grid.innerHTML = '';
   const sorted = [...brokers].sort((a,b) => a.strategy - b.strategy || a.name.localeCompare(b.name));
-  initRadar(sorted);
   sorted.forEach(b => grid.appendChild(buildCard(b)));
   document.getElementById('grid-count').textContent = `${sorted.length} TARGETS LOADED`;
 }
