@@ -33,10 +33,16 @@ func main() {
 	// Starts the dashboard. Loads real broker state from SQLite if the DB
 	// exists; otherwise seeds it from the built-in broker registry.
 	case "serve":
+		// Defaults to loopback-only. Set DATABROKERGO_BIND to listen on a
+		// real interface (e.g. behind a reverse proxy/tunnel that isn't on
+		// the same host) - never bind a public interface directly, since
+		// the dashboard has no login of its own.
 		addr := "127.0.0.1:8080"
+		if v := os.Getenv("DATABROKERGO_BIND"); v != "" {
+			addr = v
+		}
 		fmt.Printf("DATABROKER.GO v%s\n", version)
-		fmt.Printf("Dashboard: http://localhost:8080\n")
-		fmt.Printf("Bound to:  %s (loopback only)\n", addr)
+		fmt.Printf("Dashboard bound to: %s\n", addr)
 
 		store, err := openStore()
 		if err != nil {
