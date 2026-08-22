@@ -8,54 +8,52 @@
   <style>
 /* ── Design Tokens ───────────────────────────────────────────────── */
 :root {
-  /* High-Trust Core Color Palette (Inspired by 1Password & Proton) */
-  --bg-primary:     #0b0f19;
-  --bg-surface:     #111827;
-  --bg-card:        rgba(17, 24, 39, 0.7);
-  --bg-card-hover:  rgba(31, 41, 55, 0.8);
-  --bg-panel:       rgba(17, 24, 39, 0.45);
-  --bg-panel-hover: rgba(30, 41, 59, 0.6);
-  --bg-header:      rgba(11, 15, 25, 0.85);
-  --bg-footer:      rgba(11, 15, 25, 0.9);
-  
-  --border:         rgba(255, 255, 255, 0.08);
-  --border-hover:   rgba(59, 130, 246, 0.3);
-  --border-dim:     rgba(255, 255, 255, 0.04);
-  
+  /* Botanical Core Color Palette (Inspired by FinanceUs & Webrij) */
+  --bg-primary:     #060c09; /* Deep forest charcoal near-black */
+  --bg-surface:     #0a1410; /* Dark forest green */
+  --bg-card:        rgba(19, 38, 31, 0.7); /* Deep slate forest card background */
+  --bg-card-hover:  rgba(28, 56, 46, 0.8);
+  --bg-panel:       rgba(14, 31, 26, 0.45); /* Soft translucent forest panel */
+  --bg-panel-hover: rgba(20, 41, 33, 0.6);
+  --bg-header:      rgba(6, 12, 9, 0.85);
+  --bg-footer:      rgba(6, 12, 9, 0.90);
+
+  --border:         rgba(147, 181, 162, 0.08); /* Thin translucent sage lines */
+  --border-hover:   rgba(147, 181, 162, 0.3); /* Brighter sage interactive highlight */
+  --border-dim:     rgba(147, 181, 162, 0.04);
+
   /* Accent Brand Colors */
-  --accent:         #3b82f6; /* Trust Blue */
-  --accent-light:   #60a5fa;
-  --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-  --accent-purple:  #8b5cf6;
-  --accent-pink:    #ec4899;
-  
-  /* Global Status Indicator Colors (Polished, Non-Neon) */
-  --green:          #10b981; /* Emerald Success */
-  --green-glow:     rgba(16, 185, 129, 0.15);
-  --yellow:         #f59e0b; /* Amber Scan/Active */
-  --yellow-glow:    rgba(245, 158, 11, 0.15);
-  --red:            #ef4444; /* Coral Emergency/Failed */
-  --red-glow:     rgba(239, 68, 68, 0.15);
-  --orange:         #f97316; /* Warm Orange for Manual */
-  --orange-glow:    rgba(249, 115, 22, 0.15);
-  --blue:           #3b82f6; /* Calm Blue for Skipped */
-  --blue-glow:      rgba(59, 130, 246, 0.15);
-  
+  --accent:         #608c76; /* Soft Sage Green */
+  --accent-light:   #8eb49f; /* Bright Sage Green */
+  --accent-gradient: linear-gradient(135deg, #608c76 0%, #8eb49f 100%);
+
+  /* Global Status Indicator Colors (Desaturated, Harmonized with Sage/Forest) */
+  --green:          #81c784; /* Soft Mint Green for Success */
+  --green-glow:     rgba(129, 199, 132, 0.15);
+  --yellow:         #ffd54f; /* Soft Amber for In Progress */
+  --yellow-glow:    rgba(255, 213, 79, 0.15);
+  --red:            #e57373; /* Soft Coral Red for Failed */
+  --red-glow:       rgba(229, 115, 115, 0.15);
+  --orange:         #ffb74d; /* Soft Orange for Needs Review */
+  --orange-glow:    rgba(255, 183, 77, 0.15);
+  --blue:           #64b5f6; /* Soft Slate Blue for Skipped */
+  --blue-glow:      rgba(100, 181, 246, 0.15);
+
   /* Typography */
-  --text-primary:   #f1f5f9;
-  --text-muted:     #94a3b8;
-  --text-dim:       #64748b;
-  
+  --text-primary:   #fafaf9; /* Warm Cream Off-white */
+  --text-muted:     #b3c1b8; /* Soft Sage Gray */
+  --text-dim:       #7c8f85; /* Dimmed Olive Green-slate */
+
   --font-sans:      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono:      ui-monospace, SFMono-Regular, SF Mono, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  
-  /* Service Strategy Colors (Cohesive spectrum) */
-  --s1:             #3b82f6; /* Strategy 1: Cascade (Blue) */
-  --s2:             #6366f1; /* Strategy 2: Hidden Opt-Out (Indigo) */
-  --s3:             #8b5cf6; /* Strategy 3: Privacy Discovery (Purple) */
-  --s4:             #10b981; /* Strategy 4: Business Dirs (Emerald) */
-  --s5:             #f59e0b; /* Strategy 5: WHOIS Email (Amber) */
-  --s6:             #f97316; /* Strategy 6: Profile Brokers (Orange) */
+
+  /* Service Strategy Colors (Botanical Earth-toned Family) */
+  --s1:             #739b82; /* Strategy 1: Affiliate Cascade (Sage) */
+  --s2:             #508271; /* Strategy 2: Hidden Opt-Out (Teal) */
+  --s3:             #88a26b; /* Strategy 3: Privacy Discovery (Leaf Green) */
+  --s4:             #9da96a; /* Strategy 4: Business Dirs (Olive Green) */
+  --s5:             #baa577; /* Strategy 5: WHOIS Email (Warm Clay) */
+  --s6:             #b59374; /* Strategy 6: Profile Brokers (Muted Sand) */
 }
 
 /* ── Reset ─────────────────────────────────────────────────────────── */
@@ -70,7 +68,7 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 body {
-  background-image: radial-gradient(circle at 50% 20%, #1a1c2e 0%, #0b0f19 80%);
+  background-image: radial-gradient(circle at 50% 20%, #11221b 0%, #060c09 85%);
   min-height: 100vh;
 }
 
