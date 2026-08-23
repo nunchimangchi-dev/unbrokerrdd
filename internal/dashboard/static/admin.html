@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>unbrokerrdd — Admin</title>
+  <style>
+:root {
+  --bg-primary:     #060c09;
+  --bg-surface:     #0a1410;
+  --bg-card:        rgba(19, 38, 31, 0.7);
+  --bg-panel:       rgba(14, 31, 26, 0.45);
+  --bg-header:      rgba(6, 12, 9, 0.85);
+  --border:         rgba(147, 181, 162, 0.08);
+  --border-hover:   rgba(147, 181, 162, 0.3);
+  --border-dim:     rgba(147, 181, 162, 0.04);
+  --accent:         #608c76;
+  --accent-light:   #8eb49f;
+  --accent-gradient: linear-gradient(135deg, #608c76 0%, #8eb49f 100%);
+  --green:          #81c784;
+  --red:            #e57373;
+  --yellow:         #ffd54f;
+  --text-primary:   #fafaf9;
+  --text-muted:     #b3c1b8;
+  --text-dim:       #7c8f85;
+  --font-sans:      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; min-height: 100%;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 24px;
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 20;
+  backdrop-filter: blur(12px);
+}
+.header-left { display: flex; align-items: center; gap: 16px; }
+.title-exe {
+  font-size: 16px; font-weight: 700; letter-spacing: 0.5px;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.back-link {
+  color: var(--text-muted); text-decoration: none; font-size: 11px;
+  font-weight: 500; padding: 6px 12px; border: 1px solid var(--border);
+  border-radius: 6px; transition: all 0.15s ease;
+}
+.back-link:hover { color: var(--text-primary); border-color: var(--border-hover); }
+.header-right { font-size: 11px; color: var(--text-muted); }
+.header-right .role-admin { color: var(--accent-light); font-weight: 600; }
+
+main { max-width: 780px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+
+#gate-message { text-align: center; padding: 80px 20px; color: var(--text-muted); font-size: 14px; }
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+.panel-header {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.5px; color: var(--text-primary);
+  margin-bottom: 16px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-dim);
+  text-transform: uppercase;
+}
+.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+.field label {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.4px;
+  color: var(--text-dim); text-transform: uppercase;
+}
+input[type=text], input[type=email], input[type=number], select {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  color: var(--text-primary); font-family: var(--font-sans); font-size: 13px;
+  padding: 9px 12px; border-radius: 8px; outline: none;
+  transition: border-color 0.15s ease;
+}
+input:focus, select:focus { border-color: var(--accent-light); }
+input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
+.row { display: flex; gap: 14px; flex-wrap: wrap; }
+.row .field { flex: 1; min-width: 140px; }
+.checkbox-field { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.checkbox-field label { font-size: 11px; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
+
+.btn {
+  background: none; border: 1px solid var(--border);
+  color: var(--text-muted); font-family: var(--font-sans); font-weight: 500;
+  font-size: 11px; padding: 8px 16px; border-radius: 8px;
+  cursor: pointer; transition: all 0.15s ease;
+}
+.btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary {
+  border-color: var(--accent-light); color: var(--text-primary);
+  background: rgba(142, 180, 159, 0.12);
+}
+.btn-primary:hover { background: rgba(142, 180, 159, 0.2); }
+.btn-danger { border-color: rgba(229, 115, 115, 0.3); color: var(--red); }
+.btn-danger:hover { background: rgba(229, 115, 115, 0.1); }
+.btn-small { padding: 5px 10px; font-size: 10px; }
+
+.status-msg { font-size: 11px; padding: 8px 12px; border-radius: 8px; margin-top: 10px; display: none; }
+.status-msg.show { display: block; }
+.status-msg.ok { background: rgba(129, 199, 132, 0.1); color: var(--green); border: 1px solid rgba(129, 199, 132, 0.25); }
+.status-msg.err { background: rgba(229, 115, 115, 0.1); color: var(--red); border: 1px solid rgba(229, 115, 115, 0.25); }
+
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th { text-align: left; color: var(--text-dim); font-size: 10px; text-transform: uppercase;
+     letter-spacing: 0.4px; padding: 6px 8px; border-bottom: 1px solid var(--border-dim); }
+td { padding: 10px 8px; border-bottom: 1px solid var(--border-dim); color: var(--text-primary); }
+.role-tag {
+  font-size: 10px; padding: 2px 8px; border-radius: 5px; font-weight: 600;
+  text-transform: uppercase;
+}
+.role-tag.admin { color: var(--accent-light); background: rgba(142, 180, 159, 0.12); }
+.role-tag.viewer { color: var(--text-muted); background: rgba(147, 181, 162, 0.08); }
+.user-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.add-user-row { display: flex; gap: 10px; margin-top: 16px; align-items: flex-end; }
+.add-user-row .field { margin-bottom: 0; }
+.help-text { font-size: 10px; color: var(--text-dim); margin-top: -8px; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <span class="title-exe">unbrokerrdd</span>
+    <a class="back-link" href="/">&larr; Dashboard</a>
+  </div>
+  <div class="header-right" id="whoami">Loading…</div>
+</header>
+
+<main id="gate-loading">
+  <div id="gate-message">Checking access&hellip;</div>
+</main>
+
+<main id="admin-content" style="display:none">
+
+  <!-- Subject Profile -->
+  <div class="panel">
+    <div class="panel-header">Subject Profile</div>
+    <div class="row">
+      <div class="field">
+        <label for="p-name">Name</label>
+        <input type="text" id="p-name">
+      </div>
+      <div class="field">
+        <label for="p-state">State</label>
+        <input type="text" id="p-state" maxlength="2" placeholder="e.g. OH">
+      </div>
+    </div>
+    <div class="field">
+      <label for="p-email">Email</label>
+      <input type="email" id="p-email">
+    </div>
+    <button class="btn btn-primary" onclick="saveProfile()">Save Profile</button>
+    <div class="status-msg" id="profile-msg"></div>
+  </div>
+
+  <!-- Run Control -->
+  <div class="panel">
+    <div class="panel-header">Run Control</div>
+    <div class="row">
+      <div class="field">
+        <label for="r-strategy">Strategy</label>
+        <select id="r-strategy">
+          <option value="1">Strategy 1 — Affiliate Cascade</option>
+          <option value="2" disabled>Strategy 2 — not yet implemented</option>
+          <option value="3" disabled>Strategy 3 — not yet implemented</option>
+          <option value="4" disabled>Strategy 4 — not yet implemented</option>
+          <option value="5" disabled>Strategy 5 — not yet implemented</option>
+          <option value="6" disabled>Strategy 6 — not yet implemented</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="r-limit">Limit (blank = all pending)</label>
+        <input type="number" id="r-limit" min="1" placeholder="all">
+      </div>
+    </div>
+    <div class="checkbox-field">
+      <input type="checkbox" id="r-dryrun" checked>
+      <label for="r-dryrun">Dry run (no real form submissions)</label>
+    </div>
+    <button class="btn btn-primary" id="r-start-btn" onclick="startBatch()">Start Batch</button>
+    <div class="status-msg" id="run-msg"></div>
+  </div>
+
+  <!-- Access Management -->
+  <div class="panel">
+    <div class="panel-header">Access Management</div>
+    <table>
+      <thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
+      <tbody id="users-tbody"></tbody>
+    </table>
+    <div class="add-user-row">
+      <div class="field" style="flex:1">
+        <label for="u-email">Add email</label>
+        <input type="email" id="u-email" placeholder="name@example.com">
+      </div>
+      <div class="field">
+        <label for="u-role">Role</label>
+        <select id="u-role">
+          <option value="viewer">Viewer</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="addUser()">Add</button>
+    </div>
+    <div class="status-msg" id="users-msg"></div>
+  </div>
+
+</main>
+
+<script>
+'use strict';
+
+function showMsg(id, text, ok) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = 'status-msg show ' + (ok ? 'ok' : 'err');
+  setTimeout(() => el.classList.remove('show'), 4000);
+}
+
+async function loadProfile() {
+  const res = await fetch('/api/profile');
+  if (!res.ok) return;
+  const p = await res.json();
+  document.getElementById('p-name').value  = p.name  || '';
+  document.getElementById('p-email').value = p.email || '';
+  document.getElementById('p-state').value = p.state || '';
+}
+
+async function saveProfile() {
+  const body = {
+    name:  document.getElementById('p-name').value.trim(),
+    email: document.getElementById('p-email').value.trim(),
+    state: document.getElementById('p-state').value.trim().toUpperCase(),
+  };
+  const res = await fetch('/api/profile', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) showMsg('profile-msg', 'Profile saved.', true);
+  else showMsg('profile-msg', await res.text() || 'Failed to save profile.', false);
+}
+
+async function startBatch() {
+  const btn = document.getElementById('r-start-btn');
+  const strategy = parseInt(document.getElementById('r-strategy').value, 10);
+  const dryRun   = document.getElementById('r-dryrun').checked;
+  const limitRaw = document.getElementById('r-limit').value.trim();
+  const body = { strategy, dry_run: dryRun, limit: limitRaw ? parseInt(limitRaw, 10) : 0 };
+
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 202) {
+      showMsg('run-msg', `Batch started (strategy ${strategy}${dryRun ? ', dry run' : ''}). Check the dashboard for live progress.`, true);
+    } else if (res.status === 409) {
+      showMsg('run-msg', 'A batch is already running — wait for it to finish before starting another.', false);
+    } else {
+      showMsg('run-msg', await res.text() || 'Failed to start batch.', false);
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadUsers() {
+  const res = await fetch('/api/users');
+  if (!res.ok) return;
+  const users = await res.json();
+  const tbody = document.getElementById('users-tbody');
+  tbody.innerHTML = (users || []).map(u => `
+    <tr>
+      <td>${escapeHtml(u.email)}</td>
+      <td><span class="role-tag ${u.role}">${u.role}</span></td>
+      <td>
+        <div class="user-actions">
+          <button class="btn btn-small" onclick="toggleRole('${escapeAttr(u.email)}','${u.role === 'admin' ? 'viewer' : 'admin'}')">
+            Make ${u.role === 'admin' ? 'Viewer' : 'Admin'}
+          </button>
+          <button class="btn btn-small btn-danger" onclick="removeUser('${escapeAttr(u.email)}')">Remove</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeAttr(s) { return escapeHtml(s).replace(/'/g, '&#39;'); }
+
+async function addUser() {
+  const email = document.getElementById('u-email').value.trim();
+  const role  = document.getElementById('u-role').value;
+  if (!email) { showMsg('users-msg', 'Enter an email first.', false); return; }
+  const res = await fetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, role }),
+  });
+  if (res.ok) {
+    document.getElementById('u-email').value = '';
+    showMsg('users-msg', `Added ${email} as ${role}.`, true);
+    loadUsers();
+  } else {
+    showMsg('users-msg', await res.text() || 'Failed to add user.', false);
+  }
+}
+
+async function toggleRole(email, newRole) {
+  const res = await fetch('/api/users', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, role: newRole }),
+  });
+  if (res.ok) { showMsg('users-msg', `Updated ${email} to ${newRole}.`, true); loadUsers(); }
+  else showMsg('users-msg', await res.text() || 'Failed to update role.', false);
+}
+
+async function removeUser(email) {
+  const res = await fetch('/api/users?email=' + encodeURIComponent(email), { method: 'DELETE' });
+  if (res.ok) { showMsg('users-msg', `Removed ${email}.`, true); loadUsers(); }
+  else showMsg('users-msg', await res.text() || 'Failed to remove user.', false);
+}
+
+async function init() {
+  const res = await fetch('/api/me');
+  const me = await res.json();
+  document.getElementById('whoami').innerHTML =
+    `${escapeHtml(me.email)} &middot; <span class="role-${me.role}">${me.role}</span>`;
+
+  if (me.role !== 'admin') {
+    document.getElementById('gate-message').textContent =
+      'Access restricted — admin role required to view this page.';
+    return;
+  }
+
+  document.getElementById('gate-loading').style.display = 'none';
+  document.getElementById('admin-content').style.display = 'flex';
+  loadProfile();
+  loadUsers();
+}
+
+init();
+</script>
+</body>
+</html>

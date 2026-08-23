@@ -50,7 +50,22 @@ func main() {
 		}
 		defer store.Close()
 
-		if err := dashboard.Serve(addr, store); err != nil {
+		cfg, err := config.Load()
+		if err != nil {
+			log.Fatalf("load config: %v", err)
+		}
+		if prof, err := store.GetSubjectProfile(); err == nil && prof != nil {
+			cfg.SubjectName = prof.Name
+			cfg.SubjectEmail = prof.Email
+			cfg.SubjectState = prof.State
+		}
+
+		agents := map[int]agent.Agent{
+			1: strategies.NewStrategy1(),
+			// 2-6: added in future phases
+		}
+
+		if err := dashboard.Serve(addr, store, cfg, agents); err != nil {
 			log.Fatal(err)
 		}
 
@@ -82,6 +97,12 @@ func main() {
 			log.Fatalf("open store: %v", err)
 		}
 		defer store.Close()
+
+		if prof, err := store.GetSubjectProfile(); err == nil && prof != nil {
+			cfg.SubjectName = prof.Name
+			cfg.SubjectEmail = prof.Email
+			cfg.SubjectState = prof.State
+		}
 
 		mode := "LIVE"
 		if dryRun {

@@ -6,6 +6,8 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver, no CGo required
@@ -53,6 +55,12 @@ func New(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if adminEmail := os.Getenv("UNBROKERRDD_ADMIN_EMAIL"); adminEmail != "" {
+		if err := s.BootstrapAllowedUsers(adminEmail); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("bootstrap admin user: %w", err)
+		}
+	}
 	return s, nil
 }
 
@@ -80,6 +88,18 @@ func (s *Store) migrate() error {
 			result      TEXT,
 			error       TEXT,
 			created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS allowed_users (
+			email TEXT PRIMARY KEY,
+			role  TEXT NOT NULL CHECK(role IN ('viewer','admin'))
+		);
+
+		CREATE TABLE IF NOT EXISTS subject_profile (
+			id    INTEGER PRIMARY KEY CHECK (id = 1),
+			name  TEXT NOT NULL,
+			email TEXT NOT NULL,
+			state TEXT NOT NULL
 		);
 	`)
 	return err
@@ -241,6 +261,173 @@ func (s *Store) Reset(id string) error {
 		last_attempt_at=NULL, confirmation_url=NULL, notes=NULL,
 		updated_at=CURRENT_TIMESTAMP WHERE id=?`, id,
 	)
+	return err
+}
+
+// AllowedUser represents a user with access to the admin panel.
+type AllowedUser struct {
+	Email string `json:"email"`
+	Role  string `json:"role"`
+}
+
+// SubjectProfile holds the subject's PII profile.
+type SubjectProfile struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	State string `json:"state"`
+}
+
+// BootstrapAllowedUsers seeds the UNBROKERRDD_ADMIN_EMAIL if the table is empty.
+func (s *Store) BootstrapAllowedUsers(adminEmail string) error {
+	if adminEmail == "" {
+		return nil
+	}
+	// Check if any rows exist in allowed_users
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM allowed_users").Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err = s.db.Exec("INSERT INTO allowed_users (email, role) VALUES (?, 'admin')", adminEmail)
+		if err != nil {
+			return fmt.Errorf("bootstrap admin user: %w", err)
+		}
+		log.Printf("[db] Bootstrapped admin user: %s", adminEmail)
+	}
+	return nil
+}
+
+// GetUserRole returns the role of the user, defaulting to "viewer" if they do not exist.
+func (s *Store) GetUserRole(email string) (string, error) {
+	var role string
+	err := s.db.QueryRow("SELECT role FROM allowed_users WHERE email = ?", email).Scan(&role)
+	if err == sql.ErrNoRows {
+		return "viewer", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return role, nil
+}
+
+// ListAllowedUsers returns all allowed users.
+func (s *Store) ListAllowedUsers() ([]AllowedUser, error) {
+	rows, err := s.db.Query("SELECT email, role FROM allowed_users ORDER BY email")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []AllowedUser
+	for rows.Next() {
+		var u AllowedUser
+		if err := rows.Scan(&u.Email, &u.Role); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
+// AddAllowedUser adds a new allowed user.
+func (s *Store) AddAllowedUser(email, role string) error {
+	if role != "viewer" && role != "admin" {
+		return fmt.Errorf("invalid role: %s", role)
+	}
+	_, err := s.db.Exec("INSERT INTO allowed_users (email, role) VALUES (?, ?)", email, role)
+	return err
+}
+
+// UpdateAllowedUserRole updates an existing user's role. Enforces the last-admin invariant.
+func (s *Store) UpdateAllowedUserRole(email, role string) error {
+	if role != "viewer" && role != "admin" {
+		return fmt.Errorf("invalid role: %s", role)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var currentRole string
+	err = tx.QueryRow("SELECT role FROM allowed_users WHERE email = ?", email).Scan(&currentRole)
+	if err != nil {
+		return err
+	}
+
+	if currentRole == "admin" && role == "viewer" {
+		var adminCount int
+		err = tx.QueryRow("SELECT COUNT(*) FROM allowed_users WHERE role = 'admin'").Scan(&adminCount)
+		if err != nil {
+			return err
+		}
+		if adminCount <= 1 {
+			return fmt.Errorf("cannot demote the last admin")
+		}
+	}
+
+	_, err = tx.Exec("UPDATE allowed_users SET role = ? WHERE email = ?", role, email)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// DeleteAllowedUser removes a user. Enforces the last-admin invariant.
+func (s *Store) DeleteAllowedUser(email string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var currentRole string
+	err = tx.QueryRow("SELECT role FROM allowed_users WHERE email = ?", email).Scan(&currentRole)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("user not found")
+	}
+	if err != nil {
+		return err
+	}
+
+	if currentRole == "admin" {
+		var adminCount int
+		err = tx.QueryRow("SELECT COUNT(*) FROM allowed_users WHERE role = 'admin'").Scan(&adminCount)
+		if err != nil {
+			return err
+		}
+		if adminCount <= 1 {
+			return fmt.Errorf("cannot remove the last admin")
+		}
+	}
+
+	_, err = tx.Exec("DELETE FROM allowed_users WHERE email = ?", email)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// GetSubjectProfile retrieves the single subject profile (id = 1).
+func (s *Store) GetSubjectProfile() (*SubjectProfile, error) {
+	var p SubjectProfile
+	err := s.db.QueryRow("SELECT name, email, state FROM subject_profile WHERE id = 1").Scan(&p.Name, &p.Email, &p.State)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// UpdateSubjectProfile updates the single subject profile (id = 1).
+func (s *Store) UpdateSubjectProfile(p *SubjectProfile) error {
+	_, err := s.db.Exec(`
+		INSERT INTO subject_profile (id, name, email, state)
+		VALUES (1, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			name = excluded.name,
+			email = excluded.email,
+			state = excluded.state
+	`, p.Name, p.Email, p.State)
 	return err
 }
 

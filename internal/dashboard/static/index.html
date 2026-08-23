@@ -683,6 +683,7 @@ header {
       </div>
     </div>
     <div class="header-right">
+      <a href="/admin.html" id="admin-link" style="display:none; color: var(--text-muted); text-decoration:none; font-size:11px; font-weight:500; padding:4px 10px; border:1px solid var(--border); border-radius:6px;">ADMIN</a>
       <span class="live-dot" id="agent-link-status">AGENT LINK</span>
       <span id="mode-badge" class="demo">DEMO</span>
     </div>
@@ -1240,7 +1241,9 @@ function openDetail(id) {
   ];
   document.getElementById('detail-content').innerHTML = rows.map(([k,v,c]) =>
     `<div class="detail-row"><span class="detail-key">${k}</span><span class="detail-val ${c}">${v}</span></div>`
-  ).join('');
+  ).join('') + (currentUser.role === 'admin'
+    ? `<button class="filter-btn" style="margin-top:14px" onclick="retryBroker('${id}')">&#8635; Retry (reset to pending)</button>`
+    : '');
   document.getElementById('detail-modal').classList.add('open');
 }
 function closeDetail() {
@@ -1330,10 +1333,29 @@ function connectWS() {
 // ══════════════════════════════════════════════════════════════════
 //  BOOTSTRAP
 // ══════════════════════════════════════════════════════════════════
+let currentUser = { email: null, role: 'viewer' };
+
+async function loadCurrentUser() {
+  try {
+    const res = await fetch('/api/me');
+    if (!res.ok) return;
+    currentUser = await res.json();
+    if (currentUser.role === 'admin') {
+      document.getElementById('admin-link').style.display = 'inline-block';
+    }
+  } catch { /* /api/me unavailable (e.g. static-only preview) - stay viewer */ }
+}
+
+async function retryBroker(id) {
+  const res = await fetch('/api/reset?id=' + encodeURIComponent(id), { method: 'POST' });
+  if (res.ok) closeDetail();
+}
+
 (function bootstrap() {
   initGrid(BROKER_DATA.map(b => ({ ...b, status:'pending' })));
   updateStats({ total:85, pending:85, in_progress:0, success:0, failed:0, skipped:0, manual:0 });
   connectWS();
+  loadCurrentUser();
 
   // Clock
   setInterval(() => {
