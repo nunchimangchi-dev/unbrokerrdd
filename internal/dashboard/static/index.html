@@ -1315,7 +1315,8 @@ async function startDemo() {
 // ══════════════════════════════════════════════════════════════════
 function connectWS() {
   let ws;
-  try { ws = new WebSocket('ws://localhost:8080/ws'); } catch { startDemo(); return; }
+  const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  try { ws = new WebSocket(`${wsProtocol}//${location.host}/ws`); } catch { startDemo(); return; }
 
   ws.onopen    = () => { setMode(true); demoRunning = false; if (wsRetry) clearTimeout(wsRetry); addLogEntry('Server connection established', 'green'); };
   ws.onmessage = e => {
