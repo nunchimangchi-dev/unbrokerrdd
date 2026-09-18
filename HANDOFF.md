@@ -199,6 +199,79 @@ A comprehensive integration and unit test suite has been implemented in `interna
 
 **No browser was available for visual verification.** As an interactive AI CLI assistant operating strictly within a terminal container environment, I do not have access to a web browser engine or visual GUI preview. I have verified the validity of all backend Go code and database schema declarations, and built fully-passing automated tests to guarantee perfect functional correctness.
 
+## September 17, 2026: First real Strategy 2 site (CheckPeople), and why the rest still route to manual
+
+The user asked directly why Strategy 2 couldn't just be automated the same way Strategy 1 was — that was the actual point of the tool. Rather than assume, I live-tested the idea (via a browser automation tool, not guesswork) against two real candidate sites before writing any Go code.
+
+**What I found:**
+- `internal/agent/claude.go` already had `FindOptOutForm` (Haiku-vision selector discovery) sitting completely unused — Strategy 1 never needed it because TruthFinder's form was hand-coded directly.
+- Tested it against **Acxiom** (`acxiom.com/optout/`) first, expecting an easy win: real page has a cookie-consent banner blocking the form, the name fields are gated behind a "select opt out segment" dropdown, and the actual form lives inside a cross-origin iframe (`isapps.acxiom.com/optout/optout.aspx`) that redirects back to the wrapper page if navigated to directly — meaning chromedp would need real cross-origin frame targeting to drive it. Not a quick generic bolt-on.
+- Tested **CheckPeople** (`checkpeople.com/opt-out`) next: a clean, same-origin, single-page form (`#requestorEmail`, `#acknowledge` checkbox, `button[type=submit].cp-auto-optout__button`), no cookie banner, no iframe. Submitted it live with a throwaway test address and confirmed the real response: *"An email has been sent to the address you provided. Please click the link in the email to continue."* — this matches `ValidateOutcome`'s existing `needs_email_confirmation = success` handling exactly.
+
+**What got built:** `strategies/strategy2_checkpeople.go` — a `Strategy2` type that routes by `broker.ID`: `checkpeople` gets the verified live flow (allowlist → dry-run gate → config gate → chromedp fill/submit → Haiku `ValidateOutcome`), and every other Strategy 2 broker.ID gets `StatusManual` with an explanatory note rather than an untested, guessed-at attempt. Also fixed a real bug caught in testing: the manual fallback initially returned `StatusManual` even during `--dry-run`, which would have permanently burned the idempotency guard (`CanDispatch` only allows re-dispatch when `status == pending`) on 13 brokers from a single dry-run call — dry-run now correctly leaves them `StatusPending`, matching Strategy 1's contract.
+
+**Registry change:** replaced the unverified `peeplookup.com` entry with the verified `checkpeople.com` (broker ID `checkpeople`) to keep the total at 85 rather than adding a new count everywhere docs reference it. `internal/agent/allowlist.go` updated to match.
+
+**Why the other 13 Strategy 2 sites aren't also done:** each real site needs the same kind of individual verification Strategy 1 got against TruthFinder and this pass got against CheckPeople — cookie banners, iframes, and dropdown-gated fields vary site to site, and a single generic vision pass isn't reliable enough to trust unattended for a privacy tool whose whole premise is that a reported "success" actually happened. This is genuine incremental engineering work, not a missed shortcut.
+
+**Tests:** `strategies/strategy2_checkpeople_test.go` — allowlist check, dry-run-never-submits, live-blocked-without-config, unknown-broker-routes-to-manual (live), and unknown-broker-dry-run-stays-pending (the bug fix above, pinned so it can't regress). `go build ./...`, `go vet ./...`, and `go test ./...` all pass.
+
+**Update, same day:** the Flatpak-Chrome gap above is now fixed. Confirmed by reading chromedp's actual source (`allocate.go`'s `findExecPath`) that it walks a fixed list of PATH binary names (`chromium`, `google-chrome`, `google-chrome-stable`, ...) via `exec.LookPath` — none of which exist when Chrome is Flatpak-only. Fix: a 2-line shim at `~/.local/bin/google-chrome` (`exec flatpak run com.google.Chrome "$@"`), documented in `README.md`. Verified for real with a throwaway Go program using the identical `chromedp.NewContext` call the strategies use — it launched real Flatpak Chrome headed, navigated a live page, read its title back, and shut down clean with no leftover processes (checked via `ps aux`). This is a machine-local setup step (lives outside the repo, in `~/.local/bin`), not a code change — nothing in `strategy1_truthfinder.go` or `strategy2_checkpeople.go` needed to change for it to work.
+
+## September 17, 2026 (later): Strategy 1 was hitting the wrong control — corrected
+
+The user ran Strategy 1 live. It reported success, cascaded all 7 affiliate brokers to `success`, and I told the user "it worked." That was wrong, caught only because the user then looked at the actual TruthFinder confirmation page themselves and asked what to do — I checked the live page rather than assume, and found the real problem.
+
+**What was actually wrong:** `truthfinder.com/privacy-center` has two separate tools — "User Data Tools" (account/visitor data: email, search history, payment records) and "Public Data Tools" (Suppress Your Background Report — the thing that stops your info from being found in a search). Strategy 1's code clicked **"Delete My User Data,"** which is the first one. The page states this explicitly, in italics, directly under that button: *"Deleting your User Data will NOT prevent other users from searching for your Public Data through our services."* The automation was submitting correctly, to the wrong tool, the entire time.
+
+**The real target**, found by clicking through TruthFinder's own "Suppress Your Background Report" link: `https://suppression.peopleconnect.us/?brand=TruthFinder`, which redirects to `/login`. Verified live — it's a clean, same-origin, single-page form (`input[name="login-email"]`, `input[name="consent"]`, `button[type="submit"]`), the same shape as CheckPeople's flow. This is the same PeopleConnect suppression portal already in the BADBOOL manual checklist under "Intelius" — it covers TruthFinder, Intelius, USSearch, Instant Checkmate, PeopleFinder, PeopleLookup, Classmates, Spock, and Zabasearch under one submission, per TruthFinder's own privacy center copy.
+
+**Fixed:** `strategies/strategy1_truthfinder.go` rewritten to target the suppression portal instead — same gates (allowlist → dry-run → config), same Haiku `ValidateOutcome` validation, much simpler chromedp flow (no accordion/modal-timing dance, since the correct page doesn't have TruthFinder's cookie-modal quirks). Deleted `handleOptOutModal`, `chromedpClick`, `containsToXPath`, and `splitName` — all four were dead code, never called from anywhere, discovered while rewriting this file. `internal/agent/allowlist.go` updated: added `suppression.peopleconnect.us`, kept `truthfinder.com` as a dead entry with a comment explaining why (visible history, not silently removed). The 7 broker DB rows that were falsely marked `success` were reset to `pending` via `databrokergo reset` — the user's manual completion of the real suppression request isn't something this tool can verify, so `pending` is the honest state, not another guess.
+
+**Still an open, unresolved caveat, not new to this fix:** the "one submission cascades to all 7 TruthFinder-affiliate brokers" assumption (`backgroundcheckme.org` etc.) predates this fix and has never been independently verified, under either the old or the corrected flow. It's inherited from earlier project work. Flagged in the code's doc comment now instead of stated as fact.
+
+**Not yet tried against a real browser:** actually running the corrected `strategy1_truthfinder.go` and `strategy2_checkpeople.go` chromedp paths end-to-end.
+
+## September 17, 2026 (later still): the Flatpak-Chrome shim leaks a full process tree on every run — fixed
+
+While trying to continue down the manual opt-out list with live browser verification, the Claude-in-Chrome extension used for that verification disconnected. Investigated rather than just retrying: found two complete leaked Chrome process trees (browser process, GPU process, network service, multiple zygotes — a dozen-plus processes each) from the two real `go run` invocations done earlier today, **still running hours later**. Almost certainly what starved the extension's own Chrome instance.
+
+**Root cause:** the shim from the earlier fix (`exec flatpak run com.google.Chrome "$@"`) lets `flatpak run` detach from the sandboxed Chrome process once it's launched. chromedp's `cancel()` sends its kill signal to the PID it originally spawned (the shim's `flatpak run` process), but that process is already gone by then — the real Chrome tree has been reparented away and nothing chromedp does can reach it. It was never going to clean up, not just "usually doesn't."
+
+**Fix:** `flatpak run` has a `-p, --die-with-parent` flag (confirmed via `flatpak run --help`, not guessed) that ties the sandbox's lifetime to its parent. Shim is now:
+```sh
+exec flatpak run --die-with-parent com.google.Chrome "$@"
+```
+Verified properly this time — before/after process check, not just "seems to work": zero Chrome processes before a run, zero immediately after `cancel()` + a 3-second grace sleep. Ran it twice to be sure. Also worth noting for anyone debugging this class of issue later: `pkill -9 -f <user-data-dir-pattern>` did **not** reliably kill the already-leaked nested-sandbox process tree — only `kill -9` on the exact outer `bwrap` PIDs worked. Pattern-matching kills against bwrap-nested processes can silently do nothing.
+
+**Everyone who made the shim before this fix needs to regenerate it** — README.md updated with the corrected version and an explicit callout. This wasn't a one-time fluke leak; it would happen on every single real run.
+
+**Consequence for today's plan:** the extension is still disconnected after this fix (killing the leaked processes doesn't reopen the user's actual browser) — live verification of further BADBOOL sites is blocked until the user reopens Chrome. Not attempting more site reconnaissance from memory in the meantime; that would break the verify-before-build discipline this whole effort has depended on.
+
+## September 18, 2026: full BADBOOL sweep — one more site built, most of the rest have real (not lazy) blockers, one site is just gone
+
+User reopened Chrome; resumed live reconnaissance down the 💐/☠ BADBOOL list. Checked, in order: Spokeo, BeenVerified, SmartBackgroundChecks, Nuwber, Radaris, Clustal, That's Them, FamilyTreeNow, AdvancedBackgroundChecks, USPhoneBook.
+
+**Built:** `strategies/strategy2_advancedbackgroundchecks.go` — AdvancedBackgroundChecks (`advancedbackgroundchecks.com/opt-out`), same shape as CheckPeople (name + email, no search-and-pick step), wired into `Strategy2`'s router as a second case. Added to the registry as broker #86 (not a replacement this time — none of the existing Strategy 2 entries were confirmed duplicates, so the true count moved from 85 to 86 rather than silently swapping something unverified). `internal/agent/allowlist.go` and `docs`/`README`/`CLAUDE.md` updated. Selectors verified live: `#sfn`, `#smn`, `#sln`, `#semail`, `button[type="submit"]`, `#mode` (a native `<select>`, already correctly defaulted to "subject" — no interaction needed). Restored `splitName` (deleted as dead code on 2026-09-17) since this is the first site that actually needs it.
+
+**A real reliability check that paid off — don't trust that a page "loads fine" just because your own browser session got through it:** AdvancedBackgroundChecks and FamilyTreeNow have near-identical opt-out forms and both show a "protected by reCAPTCHA / bot-check" notice. Both loaded fine in my own manually-driven browser. Before building either, ran both through an actual throwaway `chromedp.NewContext` program (the same primitive the real strategies use) with no form-filling, just checking whether the page loads past any interstitial:
+- `advancedbackgroundchecks.com/opt-out` — loaded clean, real form reachable, title and body text present.
+- `familytreenow.com/optout` — chromedp got stuck on Cloudflare's "Just a moment..." challenge page and never got past it.
+
+Same-looking site, different real outcome under actual automation — confirmed rather than assumed. FamilyTreeNow is **not** being automated as a result, despite having the simplest-looking form of the whole list. Also checked (via page copy, not chromedp) that USPhoneBook explicitly requires solving a visible captcha ("complete the captcha below") and Nuwber is both reCAPTCHA-gated and profile-URL-gated — neither attempted.
+
+**Why the rest of the 💐 tier isn't automated, with actual reasons instead of "too hard":**
+- **Spokeo, Clustal, BeenVerified, SmartBackgroundChecks** — each requires the human to search their own name first and paste/select the specific listing URL or record before any form can be submitted. This isn't a missing feature; auto-selecting "which of these same-named people is the user" without a human confirming is a real correctness problem (a wrong guess opts out a stranger's real listing without their consent) — it's a design constraint, not a shortcut skipped.
+- **That's Them** — its form is otherwise simple (no search-and-pick step) but requires a full street address and phone number. `config.Config` deliberately doesn't collect either (the project's own stated minimal-data principle: name + email + state only). Automating this would mean adding fields the tool has intentionally avoided — a real product decision to make, not a quick code change.
+- **Clustal, FamilyTreeNow** — bot-check interstitials, one of which (Clustal) happened to resolve automatically and the other (FamilyTreeNow) didn't; see above.
+- **Nuwber, USPhoneBook** — explicit CAPTCHA requirements. Not attempted; solving these would cross into anti-bot-detection-evasion territory this project has no business doing.
+
+**Unplanned good news:** Radaris.com was seized by New Jersey Superior Court order in August 2026 (*Atlas Data Privacy Corp. v. Radaris.com*, under Daniel's Law) and transferred to Atlas Data Privacy Corp. It no longer operates as a people-search site — `radaris.com/control-privacy` now just shows the court order. Nothing to opt out of there; removed from the actionable checklist rather than left as a stale "try this" item.
+
+**Tests:** `strategies/strategy2_checkpeople_test.go` gained an allowlist check and dry-run test for AdvancedBackgroundChecks; `strategies/splitname_internal_test.go` added (internal `package strategies` test, since `splitName` is unexported) covering the name-splitting edge cases. `go build ./...`, `go vet ./...`, `go test ./...` all pass.
+
+**Still not done, for real reasons above, not oversight:** Spokeo, BeenVerified, Clustal, Nuwber, SmartBackgroundChecks, That's Them, FamilyTreeNow, USPhoneBook. Strategies 3-6 remain fully unimplemented.
+
 
 
 

@@ -50,14 +50,14 @@ Note: earlier drafts of this doc described a broader file layout (`agent/browser
 
 | # | Name | Sites | Mechanism | Status |
 |---|------|-------|-----------|--------|
-| 1 | TruthFinder Affiliates | 7 | 1 opt-out at truthfinder.com/privacy-center, chromedp + Claude Haiku vision validation | **Built** |
-| 2 | Hidden Opt-Out Pages | 14 | Navigate to /opt-out URL, fill form | Planned |
+| 1 | TruthFinder Affiliates | 7 | 1 suppression request at suppression.peopleconnect.us (PeopleConnect's shared portal), chromedp + Claude Haiku vision validation | **Built** — corrected 2026-09-17, see HANDOFF.md |
+| 2 | Hidden Opt-Out Pages | 15 (was 14 — added AdvancedBackgroundChecks 2026-09-18) | Navigate to /opt-out URL, fill form | **Partially built** — 2/15 (CheckPeople, AdvancedBackgroundChecks), rest route to manual |
 | 3 | Privacy Page Discovery | 25 | Scrape contact email → send CCPA email | Planned |
 | 4 | Business Directories | 18 | Search name → skip if not found | Planned |
 | 5 | Phone Directories (WHOIS) | 12 | WHOIS lookup → send CCPA email | Planned |
 | 6 | Profile Brokers | 9 | Account-based deletion or flag manual | Planned |
 
-The broker registry (85 targets in `brokers.go`) is fully seeded across all 6 strategy buckets today; only the Strategy 1 execution agent is wired up in `main.go`. Strategies 2-6 are roadmap, not yet implemented.
+The broker registry (86 targets in `brokers.go`, was 85 before AdvancedBackgroundChecks was added 2026-09-18) is fully seeded across all 6 strategy buckets today. Strategy 1's agent is wired up for its whole bucket (one PeopleConnect suppression submission cascades all 7 — see the 2026-09-17 correction in `HANDOFF.md`, it used to hit the wrong TruthFinder control entirely). Strategy 2 (`strategies/strategy2_checkpeople.go` + `strategy2_advancedbackgroundchecks.go`) is a router, not a single mechanism like Strategy 1 — each broker.ID needs its own verified selectors (real sites have cookie banners, iframes, bot-check interstitials, and multi-step disclosure that don't yield to one generic vision pass), so only `checkpeople` and `advancedbackgroundchecks` have working handlers; every other Strategy 2 broker.ID is deliberately routed to `StatusManual` rather than guessed at. See the 2026-09-17 and 2026-09-18 entries in `HANDOFF.md` for what was tried, what actually blocks automation on the rest of the BADBOOL list (bot-checks that block chromedp outright, profile-URL disambiguation needed for correctness, PII fields the tool deliberately doesn't collect), and why. Strategies 3-6 remain fully roadmap, not yet implemented.
 
 ---
 

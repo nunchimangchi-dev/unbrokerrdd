@@ -50,21 +50,38 @@ locally (not assumed), and a real dependency vulnerability scan.
   coverage in that package).
 
 **Real gaps found, not yet fixed:**
-- **Test coverage still zero in `config`, `dashboard`, `db`, `orchestrator`**
-  (now has real coverage in `agent` and `strategies`).
+- **Test coverage still zero in `config`, `db`, `orchestrator`**
+  (now has real coverage in `agent`, `strategies`, and — since the
+  2026-08-22 admin panel work — `dashboard`).
 - **No validation of the vision model's own output** for the *success*
   path specifically (see above — this is the same finding, narrowed: the
   dom-text pre-check only ever reduces failure-path calls, it doesn't
   address the deeper "what if Haiku hallucinates a success" question).
-- **Broker-site Terms of Service legality is an open, undocumented
-  question.** Distinct from any of the 14 points as originally framed —
-  closer to CFAA-adjacent territory than GDPR/privacy. Whether automating
-  opt-out submissions against a given site's own ToS is legally fine
-  hasn't been researched or documented anywhere in this repo.
-- **PII-handling discipline verified for one config object, not
-  end-to-end.** The redaction test proves `Config.Redacted()` works; it
-  doesn't prove the dashboard's HTTP/WebSocket responses or any log output
-  never leak the subject's name/email during normal operation.
+- **PII-handling discipline verified for the endpoints checked, not
+  every code path.** As of 2026-09-17: the WebSocket broker-status feed
+  carries no subject PII (broker id/name/status/URL/strategy only), the
+  two endpoints that do return subject PII (`/api/profile`,
+  `/api/users`) are gated to `role == "admin"` server-side, and
+  `identityMiddleware` fails safe — an unrecognized visitor gets
+  `"viewer"`, not `"admin"` (the one exception, standalone demo mode
+  with no DB, only ever serves hardcoded fake `Jane Doe` data). Log
+  output and error-path messages haven't been swept for incidental PII
+  leakage, so this is "spot-checked," not "end-to-end."
+
+## Audited 2026-09-17
+
+Re-checked the items below after they were found stale in this file
+relative to `HANDOFF.md`:
+- **Broker-site ToS legality** was actually researched and documented on
+  2026-08-21 (`HANDOFF.md`, `docs/TOS-LEGALITY-FINDINGS.md`) — the open
+  items table below had it marked "Not started" by mistake; corrected.
+- **`dashboard` test coverage** was added 2026-08-22 alongside the admin
+  panel (`internal/dashboard/server_test.go`) — the table and the gap
+  list above still said "zero"; corrected.
+- Independently re-verified (not just re-read the doc) that `.env` and
+  `databrokergo.db` have never been committed, across full git history,
+  and that no real name/email/address appears anywhere in tracked files
+  or commit messages.
 
 ## Items from the standard template that don't apply here, and why
 
@@ -88,8 +105,8 @@ locally (not assumed), and a real dependency vulnerability scan.
 | Dependency vulnerabilities | 0 exploitable, fixed via Go toolchain bump |
 | CI | Added 2026-08-21 |
 | Rate limiting against target sites | Done — verified real, was mistakenly flagged as missing earlier |
-| Test coverage outside `strategies/` | Started 2026-08-21 — `agent` now covered, `config`/`dashboard`/`db`/`orchestrator` still not |
+| Test coverage outside `strategies/` | `agent` (2026-08-21) and `dashboard` (2026-08-22) covered — `config`/`db`/`orchestrator` still not |
 | Dom-text pre-check to reduce model spend | Done 2026-08-21 |
 | Vision-model output validation | Not started |
-| Broker ToS legality research | Not started |
-| End-to-end PII-handling audit | Not started (only the config-object path verified) |
+| Broker ToS legality research | Done 2026-08-21 — see `HANDOFF.md` / `docs/TOS-LEGALITY-FINDINGS.md` |
+| End-to-end PII-handling audit | Spot-checked 2026-09-17 (WS feed, `/api/profile`, `/api/users`, role fail-safe) — logging/error paths not yet swept |

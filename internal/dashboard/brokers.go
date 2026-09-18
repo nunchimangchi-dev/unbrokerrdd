@@ -11,7 +11,7 @@ type Broker struct {
 	Status   Status `json:"status"`
 }
 
-// AllBrokers returns all 85 brokers as db.Broker slice for SQLite seeding.
+// AllBrokers returns all 86 brokers as db.Broker slice for SQLite seeding.
 // This is the single source of truth shared between the dashboard and the DB.
 func AllBrokers() []db.Broker {
 	raw := initBrokers()
@@ -40,7 +40,7 @@ const (
 	StatusManual     Status = "manual"
 )
 
-// initBrokers returns all 85 data brokers with their strategies, all starting pending.
+// initBrokers returns all 86 data brokers with their strategies, all starting pending.
 func initBrokers() []Broker {
 	return []Broker{
 		// ── Strategy 1: TruthFinder Affiliates (7 sites, 1 submission) ──────────
@@ -53,7 +53,16 @@ func initBrokers() []Broker {
 		{ID: "top4backgroundchecks", Name: "Top4Backgroundchecks", Strategy: 1, URL: "top4backgroundchecks.com"},
 
 		// ── Strategy 2: Hidden Opt-Out Pages (14 sites) ──────────────────────────
-		{ID: "peeplookup", Name: "PeepLookup", Strategy: 2, URL: "peeplookup.com"},
+		// "peeplookup" replaced 2026-09-17 with a verified real target (CheckPeople,
+		// from the community-maintained BADBOOL opt-out list) — the only Strategy 2
+		// site with a working automated handler so far; see strategies/strategy2_checkpeople.go.
+		{ID: "checkpeople", Name: "CheckPeople", Strategy: 2, URL: "checkpeople.com"},
+		// Added 2026-09-18 (not a replacement — bumps the true total to 86,
+		// since none of the existing 14 entries were confirmed as this site's
+		// duplicate). Verified live; chromedp reaches the real form without
+		// getting stuck on a bot-check, unlike several other BADBOOL sites
+		// tried the same day. See strategies/strategy2_advancedbackgroundchecks.go.
+		{ID: "advancedbackgroundchecks", Name: "AdvancedBackgroundChecks", Strategy: 2, URL: "advancedbackgroundchecks.com"},
 		{ID: "ohioresidentdirectory", Name: "Ohio Resident Directory", Strategy: 2, URL: "ohioresidentdirectory.com"},
 		{ID: "peoplesearchexpert", Name: "People Search Expert", Strategy: 2, URL: "peoplesearchexpert.com"},
 		{ID: "peoplefastfind", Name: "PeopleFastFind", Strategy: 2, URL: "peoplefastfind.com"},

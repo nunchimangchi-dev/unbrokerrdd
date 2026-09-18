@@ -14,9 +14,9 @@ import (
 
 func TestAllowlist_TruthFinderPermitted(t *testing.T) {
 	urls := []string{
-		"https://www.truthfinder.com/privacy-center",
-		"https://truthfinder.com/privacy-center",
-		"http://truthfinder.com/privacy-center", // http also allowed
+		"https://suppression.peopleconnect.us/?brand=TruthFinder",
+		"https://suppression.peopleconnect.us/login",
+		"http://suppression.peopleconnect.us/login", // http also allowed
 	}
 	for _, u := range urls {
 		if err := agent.ValidateURL(u); err != nil {

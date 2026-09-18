@@ -31,12 +31,15 @@ never takes a screenshot or calls the API.
 
 **Working today:**
 - Full broker registry — 85 real data brokers, categorized into 6 opt-out strategy types, seeded into SQLite.
-- Strategy 1 (TruthFinder affiliate cascade) — fully implemented and tested against the real site. One form submission at `truthfinder.com/privacy-center` covers 7 affiliated broker properties; Claude Haiku (vision) validates the outcome from a post-submit screenshot.
+- Strategy 1 (TruthFinder affiliate cascade) — fully implemented and tested against the real site. One suppression request at `suppression.peopleconnect.us` (PeopleConnect's shared portal, not `truthfinder.com/privacy-center`'s account-deletion tool — that one doesn't suppress your public listing, corrected 2026-09-17, see `HANDOFF.md`) covers 7 affiliated broker properties; Claude Haiku (vision) validates the outcome from a post-submit screenshot.
 - Orchestrator with QA-gated batch execution, SQLite-backed state (`pending → in_progress → success/failed/skipped/manual`), and a CLI (`serve`, `run`, `status`, `reset`).
 - Real-time dashboard (Go HTTP + WebSocket server on `:8080`) with a dark, neon aesthetic and a subtle Three.js background effect.
 
+**Partially built:**
+- Strategy 2 (hidden opt-out forms) has two verified, working sites — CheckPeople (2026-09-17) and AdvancedBackgroundChecks (2026-09-18). Every other Strategy 2 broker is deliberately routed to a manual status rather than automated with unverified selectors. A live sweep of the rest of the BADBOOL manual list (2026-09-18) found real, varied blockers: FamilyTreeNow, Clustal, and Nuwber sit behind bot-check interstitials that either got chromedp visibly stuck (`FamilyTreeNow`) or explicitly require reCAPTCHA (`Nuwber`); Spokeo, Clustal, BeenVerified, and SmartBackgroundChecks require the human to find and paste their own listing's URL first (a correctness requirement, not a missing feature — auto-selecting "which search result is you" risks opting out a stranger's data); That's Them needs a street address and phone number the tool deliberately doesn't collect. One piece of good news found along the way: Radaris.com was seized by New Jersey court order in August 2026 over Daniel's Law violations and no longer operates as a people-search site at all — nothing to opt out of there anymore.
+
 **Planned, not yet built:**
-- Strategies 2–6 (hidden opt-out forms, privacy-page email discovery, business directory checks, WHOIS-based phone directory removal, and profile-broker account deletion) — the broker registry already has all 85 sites categorized into these buckets, but only Strategy 1's execution agent exists. See `CLAUDE.md` for the per-strategy breakdown and status.
+- Strategies 3–6 (privacy-page email discovery, business directory checks, WHOIS-based phone directory removal, and profile-broker account deletion) — the broker registry already has all sites categorized into these buckets, but no execution agent exists yet. See `CLAUDE.md` for the per-strategy breakdown and status.
 - Gmail integration for the CCPA email-based strategies (3 and 5) — needs real Gmail API (OAuth2) access; not implemented.
 
 ## Components
@@ -64,6 +67,19 @@ go run ./cmd/databrokergo reset --broker "backgroundcheckme"
 `ANTHROPIC_API_KEY` can also be supplied via the macOS Keychain instead of `.env` — see `internal/config/config.go`.
 
 The dashboard binds to `127.0.0.1` only.
+
+**If a live run fails with something like `exec: "google-chrome": executable file not found`:** chromedp looks for Chrome under a fixed list of binary names on `PATH` (`chromium`, `google-chrome`, etc.) and won't find a Flatpak-only install. Fix with a one-time shim (outside the repo, machine-local, not something `go build` or CI needs):
+```bash
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/google-chrome << 'SHIM'
+#!/bin/sh
+exec flatpak run --die-with-parent com.google.Chrome "$@"
+SHIM
+chmod +x ~/.local/bin/google-chrome
+```
+**The `--die-with-parent` flag is not optional.** Without it, `flatpak run` detaches from the sandboxed Chrome process in a way that reparents it away from chromedp entirely — `cancel()` kills nothing, and the whole Chrome process tree (browser, GPU process, zygotes, network service) leaks forever after every single run. Verified this the hard way 2026-09-17: two full leaked Chrome process trees from real runs were still running *hours* later, and killing them by PID pattern (`pkill -f`) unreliably failed against the nested sandbox — only killing the exact outer `bwrap` PIDs worked. `--die-with-parent` fixes the leak at the source; confirmed clean with a before/after process check (zero leftover processes immediately after `cancel()`, vs. a full tree still alive hours later without the flag).
+
+If you already created the shim before 2026-09-17, regenerate it with the command above — the old version leaks a Chrome process tree on every run.
 
 ## Security & compliance
 

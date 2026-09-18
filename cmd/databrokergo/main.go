@@ -62,7 +62,8 @@ func main() {
 
 		agents := map[int]agent.Agent{
 			1: strategies.NewStrategy1(),
-			// 2-6: added in future phases
+			2: strategies.NewStrategy2(),
+			// 3-6: added in future phases
 		}
 
 		if err := dashboard.Serve(addr, store, cfg, agents); err != nil {
@@ -116,7 +117,8 @@ func main() {
 
 		agents := map[int]agent.Agent{
 			1: strategies.NewStrategy1(),
-			// 2-6: added in future phases
+			2: strategies.NewStrategy2(),
+			// 3-6: added in future phases
 		}
 
 		runner := orchestrator.New(store, cfg, agents, func(u orchestrator.StatusUpdate) {
