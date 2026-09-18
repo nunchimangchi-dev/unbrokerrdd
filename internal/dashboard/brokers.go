@@ -11,7 +11,7 @@ type Broker struct {
 	Status   Status `json:"status"`
 }
 
-// AllBrokers returns all 86 brokers as db.Broker slice for SQLite seeding.
+// AllBrokers returns all 95 brokers as db.Broker slice for SQLite seeding.
 // This is the single source of truth shared between the dashboard and the DB.
 func AllBrokers() []db.Broker {
 	raw := initBrokers()
@@ -40,7 +40,7 @@ const (
 	StatusManual     Status = "manual"
 )
 
-// initBrokers returns all 86 data brokers with their strategies, all starting pending.
+// initBrokers returns all 95 data brokers with their strategies, all starting pending.
 func initBrokers() []Broker {
 	return []Broker{
 		// ── Strategy 1: TruthFinder Affiliates (7 sites, 1 submission) ──────────
@@ -76,6 +76,22 @@ func initBrokers() []Broker {
 		{ID: "addrhistory", Name: "AddrHistory", Strategy: 2, URL: "addrhistory.com"},
 		{ID: "alumnius", Name: "Alumni US", Strategy: 2, URL: "alumnius.net"},
 		{ID: "jailbase", Name: "JailBase", Strategy: 2, URL: "jailbase.com"},
+		// Added 2026-09-18: investigated during the BADBOOL sweep (see
+		// HANDOFF.md 2026-09-18) but never actually added as registry rows
+		// until now - that real reconnaissance work wasn't reflected in the
+		// tracked system. Domains verified via web search against the
+		// BADBOOL list, not guessed (in particular "Clustal" is clustal.org,
+		// not .com - easy to mistype). blocker_type set for each right
+		// after seeding, matching the already-documented reasons.
+		{ID: "spokeo", Name: "Spokeo", Strategy: 2, URL: "spokeo.com"},
+		{ID: "beenverified", Name: "BeenVerified", Strategy: 2, URL: "beenverified.com"},
+		{ID: "smartbackgroundchecks", Name: "SmartBackgroundChecks", Strategy: 2, URL: "smartbackgroundchecks.com"},
+		{ID: "nuwber", Name: "Nuwber", Strategy: 2, URL: "nuwber.com"},
+		{ID: "clustal", Name: "Clustal", Strategy: 2, URL: "clustal.org"},
+		{ID: "thatsthem", Name: "That's Them", Strategy: 2, URL: "thatsthem.com"},
+		{ID: "familytreenow", Name: "FamilyTreeNow", Strategy: 2, URL: "familytreenow.com"},
+		{ID: "usphonebook", Name: "USPhoneBook", Strategy: 2, URL: "usphonebook.com"},
+		{ID: "radaris", Name: "Radaris", Strategy: 2, URL: "radaris.com"},
 
 		// ── Strategy 3: Privacy Page Discovery (25 sites) ────────────────────────
 		{ID: "alignable", Name: "Alignable", Strategy: 3, URL: "alignable.com"},

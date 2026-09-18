@@ -197,7 +197,7 @@ func main() {
 		blockerType := args["type"]
 		if id == "" || blockerType == "" {
 			fmt.Fprintln(os.Stderr, "usage: databrokergo blocker --broker <broker-id> --type <blocker-type> [--covered-by <other-broker-id>]")
-			fmt.Fprintln(os.Stderr, "types: dead_site | bot_defended | needs_profile_url | no_mechanism | covered_by_other | unbuilt | none")
+			fmt.Fprintln(os.Stderr, "types: dead_site | bot_defended | needs_profile_url | no_mechanism | missing_field | covered_by_other | unbuilt | none")
 			os.Exit(1)
 		}
 		bt := db.BlockerType(blockerType)

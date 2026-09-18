@@ -37,6 +37,7 @@ const (
 	BlockerBotDefended     BlockerType = "bot_defended"       // active anti-automation defense (CAPTCHA, WAF 403 on plain reads, etc.) - do not attempt evasion
 	BlockerNeedsProfileURL BlockerType = "needs_profile_url"  // requires a search-and-select-your-listing step; needs the ProfileURL mechanism
 	BlockerNoMechanism     BlockerType = "no_mechanism"       // no self-serve opt-out found anywhere on the site
+	BlockerMissingField    BlockerType = "missing_field"      // requires PII the tool deliberately doesn't collect (e.g. street address, phone) - a product decision, not a code fix
 	BlockerCoveredByOther  BlockerType = "covered_by_other"   // resolved as a side effect of another broker's submission - see CoveredBy
 	BlockerUnbuilt         BlockerType = "unbuilt"            // straightforward site, just no handler written yet
 )
