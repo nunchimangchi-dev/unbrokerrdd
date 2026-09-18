@@ -55,6 +55,7 @@ type Broker struct {
 	Notes           string
 	BlockerType     BlockerType
 	CoveredBy       string // broker ID whose submission also resolves this one, when BlockerType == covered_by_other
+	ProfileURL      string // subject's own listing URL, for sites requiring search-and-select-your-record before opt-out (see BlockerNeedsProfileURL)
 }
 
 // Store wraps the SQLite connection and exposes broker operations.
@@ -97,6 +98,7 @@ func (s *Store) migrate() error {
 			notes               TEXT,
 			blocker_type        TEXT NOT NULL DEFAULT '',
 			covered_by          TEXT,
+			profile_url         TEXT,
 			created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
@@ -129,7 +131,10 @@ func (s *Store) migrate() error {
 	if err := s.addColumnIfMissing("brokers", "blocker_type", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
-	return s.addColumnIfMissing("brokers", "covered_by", "TEXT")
+	if err := s.addColumnIfMissing("brokers", "covered_by", "TEXT"); err != nil {
+		return err
+	}
+	return s.addColumnIfMissing("brokers", "profile_url", "TEXT")
 }
 
 // addColumnIfMissing upgrades an existing database created before a column
@@ -270,7 +275,7 @@ func (s *Store) GetAll() ([]Broker, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, strategy, url, status, attempt_count,
 		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,''),
-		       blocker_type, COALESCE(covered_by,'')
+		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,'')
 		FROM brokers ORDER BY strategy, name
 	`)
 	if err != nil {
@@ -285,7 +290,7 @@ func (s *Store) GetPendingByStrategy(strategy int) ([]Broker, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, strategy, url, status, attempt_count,
 		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,''),
-		       blocker_type, COALESCE(covered_by,'')
+		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,'')
 		FROM brokers
 		WHERE strategy = ? AND status = 'pending'
 		ORDER BY name`,
@@ -313,6 +318,20 @@ func (s *Store) SetBlocker(id string, blocker BlockerType, coveredByID string) e
 		UPDATE brokers SET blocker_type = ?, covered_by = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?`,
 		string(blocker), coveredBy, id,
+	)
+	return err
+}
+
+// SetProfileURL records the subject's own listing URL for a site that
+// requires search-and-select-your-record before opt-out (BlockerNeedsProfileURL).
+// Does not change Status or BlockerType - the caller still needs a Strategy 2
+// handler wired up to actually use it; this just supplies the one input the
+// generic navigate/fill/submit/validate pattern needs for these sites.
+func (s *Store) SetProfileURL(id, url string) error {
+	_, err := s.db.Exec(`
+		UPDATE brokers SET profile_url = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`,
+		url, id,
 	)
 	return err
 }
@@ -537,17 +556,18 @@ func scanBrokers(rows *sql.Rows) ([]Broker, error) {
 	for rows.Next() {
 		var b Broker
 		var lat *time.Time
-		var blockerType, coveredBy string
+		var blockerType, coveredBy, profileURL string
 		if err := rows.Scan(
 			&b.ID, &b.Name, &b.Strategy, &b.URL, &b.Status,
 			&b.AttemptCount, &lat, &b.ConfirmationURL, &b.Notes,
-			&blockerType, &coveredBy,
+			&blockerType, &coveredBy, &profileURL,
 		); err != nil {
 			return nil, err
 		}
 		b.LastAttemptAt = lat
 		b.BlockerType = BlockerType(blockerType)
 		b.CoveredBy = coveredBy
+		b.ProfileURL = profileURL
 		out = append(out, b)
 	}
 	return out, rows.Err()

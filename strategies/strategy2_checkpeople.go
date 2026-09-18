@@ -45,6 +45,8 @@ func (s *Strategy2) Run(
 		return s.runCheckPeople(ctx, cfg, dryRun)
 	case "advancedbackgroundchecks":
 		return s.runAdvancedBackgroundChecks(ctx, cfg, dryRun)
+	case "spokeo":
+		return s.runSpokeo(ctx, broker, cfg, dryRun)
 	default:
 		// Dry-run must never change persisted state — matches Strategy 1's
 		// dry-run gate, which always reports StatusPending so the broker

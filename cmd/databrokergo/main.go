@@ -218,9 +218,32 @@ func main() {
 		}
 		fmt.Println()
 
+	// ── set-profile-url ───────────────────────────────────────────────
+	// The subject's own real listing URL is PII-adjacent (a specific
+	// identifier tied to their actual record) - meant to be run directly
+	// by the subject on the machine holding the real data, same as
+	// editing .env, not relayed through anything else.
+	case "set-profile-url":
+		args := parseFlags(os.Args[2:])
+		id := args["broker"]
+		url := args["url"]
+		if id == "" || url == "" {
+			fmt.Fprintln(os.Stderr, "usage: databrokergo set-profile-url --broker <broker-id> --url <listing-url>")
+			os.Exit(1)
+		}
+		store, err := openStore()
+		if err != nil {
+			log.Fatalf("open store: %v", err)
+		}
+		defer store.Close()
+		if err := store.SetProfileURL(id, url); err != nil {
+			log.Fatalf("set profile url: %v", err)
+		}
+		fmt.Printf("%s → profile_url set\n", id)
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker")
+		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url")
 		os.Exit(1)
 	}
 }

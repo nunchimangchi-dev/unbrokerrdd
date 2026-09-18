@@ -54,6 +54,17 @@ var AllowedDomains = map[string]bool{
 	"addrhistory.com":              true,
 	"alumnius.net":                 true,
 	"jailbase.com":                 true,
+	// Added 2026-09-18: the 8 BADBOOL sites brought into the registry
+	// today, plus Spokeo's real handler (strategy2_spokeo.go).
+	"spokeo.com":                true,
+	"beenverified.com":          true,
+	"smartbackgroundchecks.com": true,
+	"nuwber.com":                true,
+	"clustal.org":               true,
+	"thatsthem.com":             true,
+	"familytreenow.com":         true,
+	"usphonebook.com":           true,
+	"radaris.com":               true,
 
 	// ── Strategy 3: Privacy page discovery ────────────────────────────
 	"alignable.com":                  true,
