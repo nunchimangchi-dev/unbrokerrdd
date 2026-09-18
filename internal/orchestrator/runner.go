@@ -13,6 +13,18 @@ import (
 	"github.com/nunchimangchi-dev/unbrokerrdd/internal/db"
 )
 
+// CooldownWindow is the minimum time between real (non-dry-run) attempts on
+// the same broker. Found the hard way (2026-09-18): AdvancedBackgroundChecks
+// submitted cleanly on a cold attempt, then hit a CAPTCHA on the very next
+// one after a day of repeated automated traffic from the same IP - a self-
+// inflicted defense trigger, not a site quirk. This isn't evasion, it's
+// pacing: the difference between "one person's occasional real request" and
+// "a testing bot" is exactly this kind of restraint. Checked against the
+// attempts log (LastLiveAttemptAt), not brokers.last_attempt_at, because
+// Reset() wipes the latter for a clean display slate but must not also
+// erase the cooldown - see LastLiveAttemptAt's doc comment.
+const CooldownWindow = 48 * time.Hour
+
 // BatchConfig controls how a batch run behaves.
 type BatchConfig struct {
 	Strategy int           // which strategy (1-6) to run
@@ -102,6 +114,24 @@ func (r *Runner) RunBatch(ctx context.Context, bc BatchConfig) error {
 		if !ok {
 			log.Printf("[orchestrator] %s: not pending — skipping (idempotency)", b.ID)
 			continue
+		}
+
+		// ── Cooldown guard (live runs only - dry-run never touches the
+		// real site, so it can't trip a defense and has nothing to wait
+		// out) ──────────────────────────────────────────────────────
+		if !bc.DryRun {
+			last, err := r.store.LastLiveAttemptAt(b.ID)
+			if err != nil {
+				log.Printf("[orchestrator] %s: LastLiveAttemptAt error: %v — skipping", b.ID, err)
+				continue
+			}
+			if last != nil {
+				if wait := CooldownWindow - time.Since(*last); wait > 0 {
+					log.Printf("[orchestrator] %s: cooldown active, %s remaining — skipping (last real attempt %s)",
+						b.ID, wait.Round(time.Minute), last.Format(time.RFC3339))
+					continue
+				}
+			}
 		}
 
 		// ── Mark in-progress ──────────────────────────────────────────

@@ -190,9 +190,37 @@ func main() {
 		}
 		fmt.Printf("reset %s → pending\n", id)
 
+	// ── blocker ────────────────────────────────────────────────────────
+	case "blocker":
+		args := parseFlags(os.Args[2:])
+		id := args["broker"]
+		blockerType := args["type"]
+		if id == "" || blockerType == "" {
+			fmt.Fprintln(os.Stderr, "usage: databrokergo blocker --broker <broker-id> --type <blocker-type> [--covered-by <other-broker-id>]")
+			fmt.Fprintln(os.Stderr, "types: dead_site | bot_defended | needs_profile_url | no_mechanism | covered_by_other | unbuilt | none")
+			os.Exit(1)
+		}
+		bt := db.BlockerType(blockerType)
+		if blockerType == "none" {
+			bt = db.BlockerNone
+		}
+		store, err := openStore()
+		if err != nil {
+			log.Fatalf("open store: %v", err)
+		}
+		defer store.Close()
+		if err := store.SetBlocker(id, bt, args["covered-by"]); err != nil {
+			log.Fatalf("set blocker: %v", err)
+		}
+		fmt.Printf("%s → blocker_type=%s", id, blockerType)
+		if args["covered-by"] != "" {
+			fmt.Printf(" covered_by=%s", args["covered-by"])
+		}
+		fmt.Println()
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset")
+		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker")
 		os.Exit(1)
 	}
 }

@@ -25,6 +25,22 @@ const (
 	StatusManual     Status = "manual"
 )
 
+// BlockerType explains WHY a broker sits at manual (or is otherwise stuck),
+// so a future session can triage the registry without re-investigating from
+// scratch. Distinct from Status: a broker can be "manual" for five genuinely
+// different reasons, and only some of them are worth ever retrying.
+type BlockerType string
+
+const (
+	BlockerNone            BlockerType = ""                  // not yet classified, or not blocked
+	BlockerDeadSite        BlockerType = "dead_site"          // domain gone/parked/seized - nothing to do, ever
+	BlockerBotDefended     BlockerType = "bot_defended"       // active anti-automation defense (CAPTCHA, WAF 403 on plain reads, etc.) - do not attempt evasion
+	BlockerNeedsProfileURL BlockerType = "needs_profile_url"  // requires a search-and-select-your-listing step; needs the ProfileURL mechanism
+	BlockerNoMechanism     BlockerType = "no_mechanism"       // no self-serve opt-out found anywhere on the site
+	BlockerCoveredByOther  BlockerType = "covered_by_other"   // resolved as a side effect of another broker's submission - see CoveredBy
+	BlockerUnbuilt         BlockerType = "unbuilt"            // straightforward site, just no handler written yet
+)
+
 // Broker is one row in the brokers table.
 type Broker struct {
 	ID              string
@@ -36,6 +52,8 @@ type Broker struct {
 	LastAttemptAt   *time.Time
 	ConfirmationURL string
 	Notes           string
+	BlockerType     BlockerType
+	CoveredBy       string // broker ID whose submission also resolves this one, when BlockerType == covered_by_other
 }
 
 // Store wraps the SQLite connection and exposes broker operations.
@@ -76,6 +94,8 @@ func (s *Store) migrate() error {
 			last_attempt_at     TIMESTAMP,
 			confirmation_url    TEXT,
 			notes               TEXT,
+			blocker_type        TEXT NOT NULL DEFAULT '',
+			covered_by          TEXT,
 			created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
@@ -102,7 +122,47 @@ func (s *Store) migrate() error {
 			state TEXT NOT NULL
 		);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("brokers", "blocker_type", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	return s.addColumnIfMissing("brokers", "covered_by", "TEXT")
+}
+
+// addColumnIfMissing upgrades an existing database created before a column
+// was added to the CREATE TABLE statement above (e.g. the already-deployed
+// prod database) - CREATE TABLE IF NOT EXISTS only helps fresh installs.
+func (s *Store) addColumnIfMissing(table, column, ddl string) error {
+	rows, err := s.db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	existing := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			return err
+		}
+		existing[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if existing[column] {
+		return nil
+	}
+	_, err = s.db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, ddl))
+	if err != nil {
+		return fmt.Errorf("add column %s.%s: %w", table, column, err)
+	}
+	return nil
 }
 
 // Seed inserts all brokers as 'pending' using INSERT OR IGNORE.
@@ -208,7 +268,8 @@ func (s *Store) Settle(id string, status Status, dryRun bool, result, notes, con
 func (s *Store) GetAll() ([]Broker, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, strategy, url, status, attempt_count,
-		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,'')
+		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,''),
+		       blocker_type, COALESCE(covered_by,'')
 		FROM brokers ORDER BY strategy, name
 	`)
 	if err != nil {
@@ -222,7 +283,8 @@ func (s *Store) GetAll() ([]Broker, error) {
 func (s *Store) GetPendingByStrategy(strategy int) ([]Broker, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, strategy, url, status, attempt_count,
-		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,'')
+		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,''),
+		       blocker_type, COALESCE(covered_by,'')
 		FROM brokers
 		WHERE strategy = ? AND status = 'pending'
 		ORDER BY name`,
@@ -233,6 +295,25 @@ func (s *Store) GetPendingByStrategy(strategy int) ([]Broker, error) {
 	}
 	defer rows.Close()
 	return scanBrokers(rows)
+}
+
+// SetBlocker records why a broker is stuck (or clears it by passing
+// BlockerNone), independent of Status - a broker can be "manual" for
+// several genuinely different reasons, and only classifying which one
+// makes the registry queryable instead of requiring re-investigation
+// from scratch every time. coveredByID is only meaningful when blocker
+// is BlockerCoveredByOther; pass "" otherwise.
+func (s *Store) SetBlocker(id string, blocker BlockerType, coveredByID string) error {
+	var coveredBy any
+	if coveredByID != "" {
+		coveredBy = coveredByID
+	}
+	_, err := s.db.Exec(`
+		UPDATE brokers SET blocker_type = ?, covered_by = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`,
+		string(blocker), coveredBy, id,
+	)
+	return err
 }
 
 // Stats returns aggregate counts by status.
@@ -262,6 +343,23 @@ func (s *Store) Reset(id string) error {
 		updated_at=CURRENT_TIMESTAMP WHERE id=?`, id,
 	)
 	return err
+}
+
+// LastLiveAttemptAt returns when this broker was last dispatched for a real
+// (non-dry-run) attempt, or nil if never. Reads the attempts log, not the
+// broker row - Reset wipes brokers.last_attempt_at for a clean display slate,
+// but attempts rows are permanent, so this survives a Reset. That's what lets
+// the orchestrator's cooldown guard catch "reset then immediately retried,"
+// which a check against brokers.last_attempt_at alone would miss entirely.
+func (s *Store) LastLiveAttemptAt(id string) (*time.Time, error) {
+	var t *time.Time
+	err := s.db.QueryRow(`
+		SELECT MAX(created_at) FROM attempts WHERE broker_id = ? AND dry_run = 0`, id,
+	).Scan(&t)
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
 }
 
 // AllowedUser represents a user with access to the admin panel.
@@ -438,13 +536,17 @@ func scanBrokers(rows *sql.Rows) ([]Broker, error) {
 	for rows.Next() {
 		var b Broker
 		var lat *time.Time
+		var blockerType, coveredBy string
 		if err := rows.Scan(
 			&b.ID, &b.Name, &b.Strategy, &b.URL, &b.Status,
 			&b.AttemptCount, &lat, &b.ConfirmationURL, &b.Notes,
+			&blockerType, &coveredBy,
 		); err != nil {
 			return nil, err
 		}
 		b.LastAttemptAt = lat
+		b.BlockerType = BlockerType(blockerType)
+		b.CoveredBy = coveredBy
 		out = append(out, b)
 	}
 	return out, rows.Err()
