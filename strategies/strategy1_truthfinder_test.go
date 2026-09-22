@@ -3,6 +3,7 @@ package strategies_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/nunchimangchi-dev/unbrokerrdd/internal/agent"
 	"github.com/nunchimangchi-dev/unbrokerrdd/internal/config"
@@ -184,6 +185,56 @@ func TestStore_Settle_LogsAttempt(t *testing.T) {
 	}
 	if all[0].ConfirmationURL != "https://confirm.example.com" {
 		t.Errorf("confirmation_url not stored correctly: %q", all[0].ConfirmationURL)
+	}
+}
+
+// TestStore_LastLiveAttemptAt_RealAttempt pins a real bug (2026-09-22):
+// LastLiveAttemptAt scanned MAX(created_at) straight into *time.Time, which
+// works for a direct column select (see scanBrokers) but not for an
+// aggregate result, which loses the type-affinity hint and comes back as
+// plain TEXT - Scan failed with "unsupported Scan ... string into *time.Time"
+// the first time this ran against a broker with real attempt history.
+// TestStore_Settle_LogsAttempt above never caught this because its only
+// Settle call uses dryRun=true, and this method's query filters dry_run=0 -
+// a broker with zero matching rows returns SQL NULL, which scans into a nil
+// *time.Time fine. The bug only ever showed up with a real dry_run=0 row
+// present, which is deliberately what this test exercises.
+func TestStore_LastLiveAttemptAt_RealAttempt(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+
+	_ = store.Seed([]db.Broker{{ID: "b1", Name: "B1", Strategy: 1, URL: "https://truthfinder.com"}})
+	_ = store.SetInProgress("b1")
+	if err := store.Settle("b1", db.StatusFailed, false /* dryRun */, "failed", "live attempt", ""); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+
+	got, err := store.LastLiveAttemptAt("b1")
+	if err != nil {
+		t.Fatalf("LastLiveAttemptAt returned error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected a non-nil timestamp for a broker with a real attempt logged")
+	}
+	if time.Since(*got) > time.Minute {
+		t.Errorf("timestamp too far in the past, parsing likely wrong: %v", got)
+	}
+}
+
+// TestStore_LastLiveAttemptAt_NoAttempts covers the complementary case -
+// a broker with no attempts at all must return (nil, nil), not an error.
+func TestStore_LastLiveAttemptAt_NoAttempts(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+
+	_ = store.Seed([]db.Broker{{ID: "b1", Name: "B1", Strategy: 1, URL: "https://truthfinder.com"}})
+
+	got, err := store.LastLiveAttemptAt("b1")
+	if err != nil {
+		t.Fatalf("LastLiveAttemptAt returned error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil for a broker with no attempts, got %v", got)
 	}
 }
 

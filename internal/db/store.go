@@ -372,14 +372,29 @@ func (s *Store) Reset(id string) error {
 // the orchestrator's cooldown guard catch "reset then immediately retried,"
 // which a check against brokers.last_attempt_at alone would miss entirely.
 func (s *Store) LastLiveAttemptAt(id string) (*time.Time, error) {
-	var t *time.Time
+	// MAX() on a TIMESTAMP column loses the type-affinity hint the driver
+	// uses to auto-convert direct column selects into time.Time (compare
+	// scanBrokers, which scans last_attempt_at straight into *time.Time
+	// with no issue) - an aggregate result comes back as plain TEXT here,
+	// so it has to be parsed manually. Found by actually exercising this
+	// against a broker with real attempt history (go test never did -
+	// every existing test broker had zero attempts, where MAX() returns
+	// SQL NULL and the type mismatch never triggers).
+	var raw sql.NullString
 	err := s.db.QueryRow(`
 		SELECT MAX(created_at) FROM attempts WHERE broker_id = ? AND dry_run = 0`, id,
-	).Scan(&t)
+	).Scan(&raw)
 	if err != nil {
 		return nil, err
 	}
-	return t, nil
+	if !raw.Valid {
+		return nil, nil
+	}
+	t, err := time.Parse("2006-01-02 15:04:05", raw.String)
+	if err != nil {
+		return nil, fmt.Errorf("parse attempts.created_at %q: %w", raw.String, err)
+	}
+	return &t, nil
 }
 
 // AllowedUser represents a user with access to the admin panel.
