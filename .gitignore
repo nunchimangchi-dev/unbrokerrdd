@@ -24,5 +24,9 @@ databrokergo.db
 .claude/settings.local.json
 
 # ── Go build artifacts ────────────────────────────────────────────────
-/databrokergo          # compiled binary
+# NB: gitignore has no trailing-comment support - "/databrokergo  # compiled
+# binary" was being read as one literal pattern, so the 24MB binary was never
+# actually ignored. Comments get their own line.
+/databrokergo
+/unbrokerrdd
 dist/
