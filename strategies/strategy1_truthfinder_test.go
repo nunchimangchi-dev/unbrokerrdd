@@ -268,6 +268,29 @@ func TestStore_LastLiveAttemptAt_NoAttempts(t *testing.T) {
 	}
 }
 
+// TestStore_LastLiveAttemptAt_IgnoresManualRouting pins a real bug: a
+// manual-routed outcome (no verified handler, or a missing required input
+// like profile_url) returns before any navigation, so it never contacts the
+// broker - but it was still logged as a live attempt and gated the 48h
+// cooldown. That blocked Spokeo's first genuine run for two days over a
+// result that had never touched spokeo.com.
+func TestStore_LastLiveAttemptAt_IgnoresManualRouting(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+
+	_ = store.Seed([]db.Broker{{ID: "b1", Name: "B1", Strategy: 2, URL: "https://spokeo.com"}})
+	_ = store.SetInProgress("b1")
+	_ = store.Settle("b1", db.StatusManual, false /* live */, "manual", "no profile_url set", "")
+
+	got, err := store.LastLiveAttemptAt("b1")
+	if err != nil {
+		t.Fatalf("LastLiveAttemptAt: %v", err)
+	}
+	if got != nil {
+		t.Errorf("a manual-routed attempt never contacts the site and must not gate the cooldown, got %v", got)
+	}
+}
+
 // ── Completion method (automation coverage accounting) ───────────────────────
 
 // TestStore_Settle_LiveSuccessIsAutonomous covers the one path that may

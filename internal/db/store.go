@@ -493,11 +493,21 @@ func (s *Store) Reset(id string) error {
 }
 
 // LastLiveAttemptAt returns when this broker was last dispatched for a real
-// (non-dry-run) attempt, or nil if never. Reads the attempts log, not the
-// broker row - Reset wipes brokers.last_attempt_at for a clean display slate,
-// but attempts rows are permanent, so this survives a Reset. That's what lets
-// the orchestrator's cooldown guard catch "reset then immediately retried,"
-// which a check against brokers.last_attempt_at alone would miss entirely.
+// attempt that actually reached the site, or nil if never. Reads the attempts
+// log, not the broker row - Reset wipes brokers.last_attempt_at for a clean
+// display slate, but attempts rows are permanent, so this survives a Reset.
+// That's what lets the orchestrator's cooldown guard catch "reset then
+// immediately retried," which a check against brokers.last_attempt_at alone
+// would miss entirely.
+//
+// StatusManual attempts are excluded deliberately. Manual routing means the
+// agent declined to act - no verified handler, or a required input like
+// profile_url missing - and returns before any navigation happens, so not a
+// single request reaches the broker. The cooldown exists to keep the tool
+// from looking like abusive repeat traffic to a site; an outcome that never
+// contacted the site can't contribute to that and must not gate a later real
+// attempt. (Found when a "no profile_url set" result blocked Spokeo's first
+// genuine run for 48h despite never having touched spokeo.com.)
 func (s *Store) LastLiveAttemptAt(id string) (*time.Time, error) {
 	// MAX() on a TIMESTAMP column loses the type-affinity hint the driver
 	// uses to auto-convert direct column selects into time.Time (compare
@@ -509,7 +519,8 @@ func (s *Store) LastLiveAttemptAt(id string) (*time.Time, error) {
 	// SQL NULL and the type mismatch never triggers).
 	var raw sql.NullString
 	err := s.db.QueryRow(`
-		SELECT MAX(created_at) FROM attempts WHERE broker_id = ? AND dry_run = 0`, id,
+		SELECT MAX(created_at) FROM attempts
+		WHERE broker_id = ? AND dry_run = 0 AND status != 'manual'`, id,
 	).Scan(&raw)
 	if err != nil {
 		return nil, err
