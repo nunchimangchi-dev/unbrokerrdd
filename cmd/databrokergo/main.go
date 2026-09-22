@@ -324,9 +324,78 @@ func main() {
 		}
 		fmt.Printf("%s → success (human-completed)\n", id)
 
+	// ── probe ─────────────────────────────────────────────────────────
+	// Read-only reconnaissance: loads a page in the same headless browser
+	// the strategies use and reports what IT sees. Never fills, never
+	// submits. Use this before classifying a site - judging from a plain
+	// HTTP fetch, a handler timeout, or your own Chrome has produced a
+	// wrong blocker_type every time it's been tried.
+	case "probe":
+		args := parseFlags(os.Args[2:])
+		target := args["url"]
+		if target == "" && args["broker"] != "" {
+			for _, b := range dashboard.AllBrokers() {
+				if b.ID == args["broker"] {
+					target = "https://" + b.URL + "/"
+					break
+				}
+			}
+			if target == "" {
+				log.Fatalf("no broker with id %q in the registry", args["broker"])
+			}
+		}
+		if target == "" {
+			fmt.Fprintln(os.Stderr, "usage: databrokergo probe --url <url>   (or --broker <broker-id>)")
+			os.Exit(1)
+		}
+
+		// Not gated on the allowlist: probing is read-only, human-invoked,
+		// and its whole purpose is evaluating sites not yet committed to.
+		// The allowlist guards automated submission paths, which this isn't.
+		if err := agent.ValidateURL(target); err != nil {
+			fmt.Printf("note: %s is not in the broker allowlist — fine for recon, but it must be added before any handler can navigate there\n\n", target)
+		}
+
+		fmt.Printf("probing %s (headless, read-only)…\n\n", target)
+		res, probeErr := agent.Probe(context.Background(), target)
+		if probeErr != nil {
+			res.NavErr = probeErr.Error()
+			fmt.Printf("  NAVIGATION FAILED: %v\n", probeErr)
+		}
+
+		fmt.Printf("  final url   %s\n", res.URL)
+		fmt.Printf("  title       %q\n", res.Title)
+		fmt.Printf("  challenge   %v\n", res.Challenge)
+		fmt.Printf("  captcha     %v %s\n", res.Captcha, res.CaptchaKind)
+
+		if len(res.Inputs) == 0 {
+			fmt.Printf("\n  no form controls rendered\n")
+		} else {
+			fmt.Printf("\n  form controls (%d):\n", len(res.Inputs))
+			for _, in := range res.Inputs {
+				vis := "visible"
+				if !in.Visible {
+					vis = "HIDDEN "
+				}
+				fmt.Printf("    %s %-10s name=%-22q id=%-20q %s\n", vis, in.Type, in.Name, in.ID, in.Placeholder)
+				if in.ClickableLabel != "" {
+					fmt.Printf("              ↳ zero-size: click %s instead, not the input\n", in.ClickableLabel)
+				}
+			}
+		}
+
+		if snippet := res.BodySnippet; snippet != "" {
+			fmt.Printf("\n  body starts: %.160s\n", snippet)
+		}
+		if b := res.SuggestedBlocker(); b != "" {
+			fmt.Printf("\n  → suggests blocker_type=%s\n", b)
+		} else {
+			fmt.Printf("\n  → no block detected; if a handler still fails here, it's the selectors, not the site\n")
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed")
+		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe")
 		os.Exit(1)
 	}
 }

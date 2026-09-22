@@ -54,6 +54,34 @@ func TestAllowlist_AllBrokerURLsPass(t *testing.T) {
 	}
 }
 
+// ── Probe classification ─────────────────────────────────────────────────────
+
+// TestProbe_SuggestedBlocker covers the mapping from what a probe observes to
+// the blocker_type it implies - the three shapes that were each misclassified
+// by hand at least once: a challenge interstitial, a CAPTCHA, and an HTTP
+// block that a normal browser never sees.
+func TestProbe_SuggestedBlocker(t *testing.T) {
+	cases := []struct {
+		name string
+		res  agent.ProbeResult
+		want string
+	}{
+		{"cloudflare challenge", agent.ProbeResult{Title: "Just a moment...", Challenge: true}, "bot_defended"},
+		{"captcha present", agent.ProbeResult{Title: "Opt out", Captcha: true}, "bot_defended"},
+		{"http 403 to automation", agent.ProbeResult{Title: "403 Forbidden"}, "bot_defended"},
+		{"navigation error", agent.ProbeResult{NavErr: "context deadline exceeded"}, "bot_defended"},
+		{"workable form", agent.ProbeResult{
+			Title:  "Opt-Out",
+			Inputs: []agent.ProbeInput{{Name: "email", Type: "email", Visible: true}},
+		}, ""},
+	}
+	for _, tc := range cases {
+		if got := tc.res.SuggestedBlocker(); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 // ── Registry integrity ───────────────────────────────────────────────────────
 
 // TestRegistry_NoDuplicateIDs - broker.ID is the primary key and the switch

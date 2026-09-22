@@ -164,7 +164,23 @@ go run ./cmd/databrokergo reset --broker checkpeople          # back to pending
 go run ./cmd/databrokergo blocker --broker nuwber --type bot_defended
 go run ./cmd/databrokergo set-profile-url --broker spokeo --url <listing-url>
 go run ./cmd/databrokergo completed --broker spokeo --note "..."  # human-completed
+go run ./cmd/databrokergo probe --url https://site.com/opt-out   # read-only recon
+go run ./cmd/databrokergo probe --broker spokeo
 ```
+
+**Run `probe` before classifying any site.** It loads the page in the same
+headless browser the strategies use and reports what *that* browser receives —
+never fills, never submits. Every wrong `blocker_type` on this project came
+from judging a site by something else:
+
+| What was used | What it actually told you | Real answer |
+|---|---|---|
+| WebFetch returned 403 | the site rejects non-browser user agents | locatefamily loads fine in a browser — wrong call |
+| handler timed out | *something* went wrong | CheckPeople had a zero-size checkbox needing its label clicked — never a defense |
+| page loads in your own Chrome | a human can use it | Spokeo serves chromedp a 403 — wrong call |
+
+`probe` answers all three directly, including naming the label selector to
+click when it finds a hidden input.
 
 `run` against a broker with a recent real attempt is refused by a 48h cooldown
 (`orchestrator.CooldownWindow`), checked against the permanent attempts log so
