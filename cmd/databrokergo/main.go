@@ -165,11 +165,59 @@ func main() {
 		for _, n := range stats {
 			total += n
 		}
+
+		registry := dashboard.AllBrokers()
+		orphans, err := store.OrphanedBrokerIDs(registry)
+		if err != nil {
+			log.Fatalf("orphan check: %v", err)
+		}
+		completion, err := store.CompletionStats()
+		if err != nil {
+			log.Fatalf("completion stats: %v", err)
+		}
+		blockers, err := store.BlockerStats()
+		if err != nil {
+			log.Fatalf("blocker stats: %v", err)
+		}
+
 		fmt.Printf("DATABROKER.GO v%s — broker status\n\n", version)
-		fmt.Printf("  %-14s %d\n", "TOTAL", total)
+
+		// Registry (what the code declares) vs database (live state). These
+		// drifting apart silently is what let a removed broker keep inflating
+		// counts for days — report both rather than picking one to trust.
+		fmt.Printf("  REGISTRY       %d targets declared in code\n", len(registry))
+		fmt.Printf("  DATABASE       %d rows\n", total)
+		if len(orphans) > 0 {
+			fmt.Printf("  ⚠ ORPHANS      %d in database but not in registry: %v\n", len(orphans), orphans)
+		}
+		fmt.Println()
+
 		for _, s := range []db.Status{db.StatusPending, db.StatusSuccess, db.StatusFailed, db.StatusInProgress, db.StatusSkipped, db.StatusManual} {
 			if n := stats[s]; n > 0 || s == db.StatusPending {
 				fmt.Printf("  %s %-12s %d\n", statusIcon(s), s, n)
+			}
+		}
+
+		// The number the project actually exists to move: how many of those
+		// successes the automation earned on its own.
+		if stats[db.StatusSuccess] > 0 {
+			fmt.Printf("\n  OF %d SUCCESSES:\n", stats[db.StatusSuccess])
+			fmt.Printf("    %-18s %d\n", "autonomous", completion[db.CompletionAutonomous])
+			fmt.Printf("    %-18s %d\n", "human-completed", completion[db.CompletionHuman])
+			if n := completion[db.CompletionNone]; n > 0 {
+				fmt.Printf("    %-18s %d  (unrecorded — predates completion tracking)\n", "unattributed", n)
+			}
+		}
+
+		if len(blockers) > 0 {
+			fmt.Printf("\n  BLOCKED, BY REASON:\n")
+			for _, b := range []db.BlockerType{
+				db.BlockerBotDefended, db.BlockerNeedsProfileURL, db.BlockerMissingField,
+				db.BlockerNoMechanism, db.BlockerDeadSite, db.BlockerCoveredByOther, db.BlockerUnbuilt,
+			} {
+				if n := blockers[b]; n > 0 {
+					fmt.Printf("    %-18s %d\n", b, n)
+				}
 			}
 		}
 
@@ -241,9 +289,44 @@ func main() {
 		}
 		fmt.Printf("%s → profile_url set\n", id)
 
+	// ── completed ─────────────────────────────────────────────────────
+	// Records a removal a human performed by hand (because a site blocked
+	// automation, or the flow needed a CAPTCHA solved, or an emailed
+	// verification link clicked). Deliberately cannot record "autonomous" -
+	// only Settle can, and only by the agent actually succeeding on a live
+	// run. Marking work as automated that a person did would defeat the
+	// entire point of tracking this.
+	case "completed":
+		args := parseFlags(os.Args[2:])
+		id := args["broker"]
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "usage: databrokergo completed --broker <broker-id> [--note \"...\"]")
+			fmt.Fprintln(os.Stderr, "marks a broker as success, completed by a human (not by the automation)")
+			os.Exit(1)
+		}
+		store, err := openStore()
+		if err != nil {
+			log.Fatalf("open store: %v", err)
+		}
+		defer store.Close()
+
+		note := args["note"]
+		if note == "" {
+			note = "Completed manually by the subject."
+		}
+		if err := store.Settle(id, db.StatusSuccess, false, "human_completed", note, ""); err != nil {
+			log.Fatalf("settle: %v", err)
+		}
+		// Settle would have stamped this autonomous (live run + success), so
+		// correct it immediately - a person did this, not the code.
+		if err := store.SetCompletionMethod(id, db.CompletionHuman); err != nil {
+			log.Fatalf("set completion method: %v", err)
+		}
+		fmt.Printf("%s → success (human-completed)\n", id)
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url")
+		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed")
 		os.Exit(1)
 	}
 }

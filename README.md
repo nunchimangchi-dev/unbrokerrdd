@@ -1,6 +1,8 @@
 # unbrokerrdd
 
-An AI-driven data broker opt-out orchestrator. It seeds a queue of 85 real US data brokers, walks each one through an opt-out strategy suited to that site, and tracks progress on a real-time dashboard.
+An AI-driven data broker opt-out orchestrator. It seeds a queue of real US data brokers, walks each one through an opt-out strategy suited to that site, and tracks progress on a real-time dashboard.
+
+**For current, accurate numbers — registry size, how many are actually done, and how many of those the automation completed on its own versus a human — run `databrokergo status`.** Counts are deliberately not hardcoded in this README or anywhere else: every hand-maintained copy of them drifted out of date, and reconciling them after the fact was its own source of error.
 
 Built as a genuine attempt at solving a real privacy problem with an AI agent doing the meaningful decision-making — not a script with an LLM bolted on.
 
@@ -30,7 +32,7 @@ never takes a screenshot or calls the API.
 ## Current state
 
 **Working today:**
-- Full broker registry — 85 real data brokers, categorized into 6 opt-out strategy types, seeded into SQLite.
+- Full broker registry — real US data brokers categorized into 6 opt-out strategy types, seeded into SQLite (`databrokergo status` for the live count and completion breakdown).
 - Strategy 1 (TruthFinder affiliate cascade) — fully implemented and tested against the real site. One suppression request at `suppression.peopleconnect.us` (PeopleConnect's shared portal, not `truthfinder.com/privacy-center`'s account-deletion tool — that one doesn't suppress your public listing, corrected 2026-09-17, see `HANDOFF.md`) covers 7 affiliated broker properties; Claude Haiku (vision) validates the outcome from a post-submit screenshot.
 - Orchestrator with QA-gated batch execution, SQLite-backed state (`pending → in_progress → success/failed/skipped/manual`), and a CLI (`serve`, `run`, `status`, `reset`).
 - Real-time dashboard (Go HTTP + WebSocket server on `:8080`) with a dark, neon aesthetic and a subtle Three.js background effect.

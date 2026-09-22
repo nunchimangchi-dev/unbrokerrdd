@@ -42,20 +42,38 @@ const (
 	BlockerUnbuilt         BlockerType = "unbuilt"            // straightforward site, just no handler written yet
 )
 
+// CompletionMethod records HOW a broker reached StatusSuccess - whether the
+// automation actually did it, or a human did it by hand.
+//
+// This exists because the tool could not previously answer its own central
+// question. A `success` row looked identical whether chromedp completed it
+// unattended or the subject clicked through the form themselves, which made
+// "how much of this is really automated?" a matter of reading prose notes
+// and remembering. Recording it as data makes automation coverage a number
+// you can query and improve against, rather than a claim you have to defend.
+type CompletionMethod string
+
+const (
+	CompletionNone      CompletionMethod = ""                // nothing was completed (pending/manual/skipped/dead)
+	CompletionAutonomous CompletionMethod = "autonomous"     // the agent ran end to end on a live run and the outcome validated - no human in the loop
+	CompletionHuman     CompletionMethod = "human_completed" // a person performed the actual submission, however the tool assisted
+)
+
 // Broker is one row in the brokers table.
 type Broker struct {
-	ID              string
-	Name            string
-	Strategy        int
-	URL             string
-	Status          Status
-	AttemptCount    int
-	LastAttemptAt   *time.Time
-	ConfirmationURL string
-	Notes           string
-	BlockerType     BlockerType
-	CoveredBy       string // broker ID whose submission also resolves this one, when BlockerType == covered_by_other
-	ProfileURL      string // subject's own listing URL, for sites requiring search-and-select-your-record before opt-out (see BlockerNeedsProfileURL)
+	ID               string
+	Name             string
+	Strategy         int
+	URL              string
+	Status           Status
+	AttemptCount     int
+	LastAttemptAt    *time.Time
+	ConfirmationURL  string
+	Notes            string
+	BlockerType      BlockerType
+	CoveredBy        string // broker ID whose submission also resolves this one, when BlockerType == covered_by_other
+	ProfileURL       string // subject's own listing URL, for sites requiring search-and-select-your-record before opt-out (see BlockerNeedsProfileURL)
+	CompletionMethod CompletionMethod
 }
 
 // Store wraps the SQLite connection and exposes broker operations.
@@ -99,6 +117,7 @@ func (s *Store) migrate() error {
 			blocker_type        TEXT NOT NULL DEFAULT '',
 			covered_by          TEXT,
 			profile_url         TEXT,
+			completion_method   TEXT NOT NULL DEFAULT '',
 			created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
@@ -134,7 +153,10 @@ func (s *Store) migrate() error {
 	if err := s.addColumnIfMissing("brokers", "covered_by", "TEXT"); err != nil {
 		return err
 	}
-	return s.addColumnIfMissing("brokers", "profile_url", "TEXT")
+	if err := s.addColumnIfMissing("brokers", "profile_url", "TEXT"); err != nil {
+		return err
+	}
+	return s.addColumnIfMissing("brokers", "completion_method", "TEXT NOT NULL DEFAULT ''")
 }
 
 // addColumnIfMissing upgrades an existing database created before a column
@@ -232,6 +254,13 @@ func (s *Store) SetInProgress(id string) error {
 
 // Settle records the final outcome of an agent run.
 // Always logs an attempt record regardless of outcome.
+//
+// A live (non-dry-run) run that lands on StatusSuccess is recorded as
+// CompletionAutonomous - by definition the agent got there itself, with no
+// human in the loop. Nothing else sets that value; human-completed work is
+// marked explicitly via SetCompletionMethod, because the tool can't observe
+// it happening. That asymmetry is the point: autonomous successes can only
+// be earned by the code actually working.
 func (s *Store) Settle(id string, status Status, dryRun bool, result, notes, confirmURL string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -239,16 +268,22 @@ func (s *Store) Settle(id string, status Status, dryRun bool, result, notes, con
 	}
 	defer tx.Rollback()
 
+	completion := ""
+	if !dryRun && status == StatusSuccess {
+		completion = string(CompletionAutonomous)
+	}
+
 	_, err = tx.Exec(`
 		UPDATE brokers SET
-			status           = ?,
-			attempt_count    = attempt_count + 1,
-			last_attempt_at  = CURRENT_TIMESTAMP,
-			confirmation_url = COALESCE(NULLIF(?, ''), confirmation_url),
-			notes            = COALESCE(NULLIF(?, ''), notes),
-			updated_at       = CURRENT_TIMESTAMP
+			status            = ?,
+			attempt_count     = attempt_count + 1,
+			last_attempt_at   = CURRENT_TIMESTAMP,
+			confirmation_url  = COALESCE(NULLIF(?, ''), confirmation_url),
+			notes             = COALESCE(NULLIF(?, ''), notes),
+			completion_method = COALESCE(NULLIF(?, ''), completion_method),
+			updated_at        = CURRENT_TIMESTAMP
 		WHERE id = ?`,
-		string(status), confirmURL, notes, id,
+		string(status), confirmURL, notes, completion, id,
 	)
 	if err != nil {
 		return fmt.Errorf("settle broker %s: %w", id, err)
@@ -275,7 +310,7 @@ func (s *Store) GetAll() ([]Broker, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, strategy, url, status, attempt_count,
 		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,''),
-		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,'')
+		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,''), completion_method
 		FROM brokers ORDER BY strategy, name
 	`)
 	if err != nil {
@@ -290,7 +325,7 @@ func (s *Store) GetPendingByStrategy(strategy int) ([]Broker, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, strategy, url, status, attempt_count,
 		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,''),
-		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,'')
+		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,''), completion_method
 		FROM brokers
 		WHERE strategy = ? AND status = 'pending'
 		ORDER BY name`,
@@ -334,6 +369,98 @@ func (s *Store) SetProfileURL(id, url string) error {
 		url, id,
 	)
 	return err
+}
+
+// SetCompletionMethod records how a broker was actually completed. Only
+// ever needed for CompletionHuman - CompletionAutonomous is set by Settle
+// when the agent earns it, and cannot be claimed by hand here without
+// misrepresenting what the automation did.
+func (s *Store) SetCompletionMethod(id string, method CompletionMethod) error {
+	_, err := s.db.Exec(`
+		UPDATE brokers SET completion_method = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`,
+		string(method), id,
+	)
+	return err
+}
+
+// CompletionStats counts successes by how they were actually completed.
+// This is the honest automation-coverage number: autonomous successes are
+// what the code achieved on its own, everything else is a human doing the
+// work with the tool's help.
+func (s *Store) CompletionStats() (map[CompletionMethod]int, error) {
+	rows, err := s.db.Query(`
+		SELECT completion_method, COUNT(*) FROM brokers
+		WHERE status = 'success' GROUP BY completion_method`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[CompletionMethod]int)
+	for rows.Next() {
+		var m string
+		var n int
+		if err := rows.Scan(&m, &n); err != nil {
+			return nil, err
+		}
+		out[CompletionMethod(m)] = n
+	}
+	return out, rows.Err()
+}
+
+// BlockerStats counts brokers by blocker_type, ignoring unclassified ones.
+func (s *Store) BlockerStats() (map[BlockerType]int, error) {
+	rows, err := s.db.Query(`
+		SELECT blocker_type, COUNT(*) FROM brokers
+		WHERE blocker_type != '' GROUP BY blocker_type`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[BlockerType]int)
+	for rows.Next() {
+		var b string
+		var n int
+		if err := rows.Scan(&b, &n); err != nil {
+			return nil, err
+		}
+		out[BlockerType(b)] = n
+	}
+	return out, rows.Err()
+}
+
+// OrphanedBrokerIDs returns broker rows present in the database but absent
+// from the canonical registry passed in (dashboard.AllBrokers()).
+//
+// Seed() is INSERT OR IGNORE, so removing or renaming a broker in code never
+// deletes its row - `peeplookup` sat in the database for days after being
+// replaced by `checkpeople`, silently inflating every count that read from
+// the DB while the code said something different. The registry is intent;
+// the database is live state; this reports where they have drifted apart
+// instead of letting the two quietly disagree.
+func (s *Store) OrphanedBrokerIDs(registry []Broker) ([]string, error) {
+	known := make(map[string]bool, len(registry))
+	for _, b := range registry {
+		known[b.ID] = true
+	}
+
+	rows, err := s.db.Query(`SELECT id FROM brokers ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orphans []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		if !known[id] {
+			orphans = append(orphans, id)
+		}
+	}
+	return orphans, rows.Err()
 }
 
 // Stats returns aggregate counts by status.
@@ -571,11 +698,11 @@ func scanBrokers(rows *sql.Rows) ([]Broker, error) {
 	for rows.Next() {
 		var b Broker
 		var lat *time.Time
-		var blockerType, coveredBy, profileURL string
+		var blockerType, coveredBy, profileURL, completionMethod string
 		if err := rows.Scan(
 			&b.ID, &b.Name, &b.Strategy, &b.URL, &b.Status,
 			&b.AttemptCount, &lat, &b.ConfirmationURL, &b.Notes,
-			&blockerType, &coveredBy, &profileURL,
+			&blockerType, &coveredBy, &profileURL, &completionMethod,
 		); err != nil {
 			return nil, err
 		}
@@ -583,6 +710,7 @@ func scanBrokers(rows *sql.Rows) ([]Broker, error) {
 		b.BlockerType = BlockerType(blockerType)
 		b.CoveredBy = coveredBy
 		b.ProfileURL = profileURL
+		b.CompletionMethod = CompletionMethod(completionMethod)
 		out = append(out, b)
 	}
 	return out, rows.Err()

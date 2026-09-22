@@ -11,8 +11,12 @@ type Broker struct {
 	Status   Status `json:"status"`
 }
 
-// AllBrokers returns all 95 brokers as db.Broker slice for SQLite seeding.
-// This is the single source of truth shared between the dashboard and the DB.
+// AllBrokers returns the full broker registry as a db.Broker slice for
+// SQLite seeding. This slice is the canonical declaration of what the tool
+// targets; for the live count and how it compares to the database (which can
+// drift - Seed is INSERT OR IGNORE), run `databrokergo status`. Counts are
+// deliberately not written into comments or docs anymore: every hand-typed
+// one of them had gone stale.
 func AllBrokers() []db.Broker {
 	raw := initBrokers()
 	out := make([]db.Broker, len(raw))
@@ -40,10 +44,10 @@ const (
 	StatusManual     Status = "manual"
 )
 
-// initBrokers returns all 95 data brokers with their strategies, all starting pending.
+// initBrokers returns the broker registry with strategy assignments, all starting pending.
 func initBrokers() []Broker {
 	return []Broker{
-		// ── Strategy 1: TruthFinder Affiliates (7 sites, 1 submission) ──────────
+		// ── Strategy 1: TruthFinder Affiliates (one submission covers the bucket) ──
 		{ID: "backgroundcheckme", Name: "Backgroundcheckme.org", Strategy: 1, URL: "backgroundcheckme.org"},
 		{ID: "newyorkpublicrecords", Name: "NewYorkPublicRecords.org", Strategy: 1, URL: "newyorkpublicrecords.org"},
 		{ID: "oregonpublicrecords", Name: "OregonPublicRecords.org", Strategy: 1, URL: "oregonpublicrecords.org"},
@@ -52,14 +56,14 @@ func initBrokers() []Broker {
 		{ID: "publicsrecords", Name: "PublicsRecords", Strategy: 1, URL: "publicsrecords.com"},
 		{ID: "top4backgroundchecks", Name: "Top4Backgroundchecks", Strategy: 1, URL: "top4backgroundchecks.com"},
 
-		// ── Strategy 2: Hidden Opt-Out Pages (14 sites) ──────────────────────────
+		// ── Strategy 2: Hidden Opt-Out Pages ────────────────────────────────────
 		// "peeplookup" replaced 2026-09-17 with a verified real target (CheckPeople,
 		// from the community-maintained BADBOOL opt-out list) — the only Strategy 2
 		// site with a working automated handler so far; see strategies/strategy2_checkpeople.go.
 		{ID: "checkpeople", Name: "CheckPeople", Strategy: 2, URL: "checkpeople.com"},
-		// Added 2026-09-18 (not a replacement — bumps the true total to 86,
-		// since none of the existing 14 entries were confirmed as this site's
-		// duplicate). Verified live; chromedp reaches the real form without
+		// Added 2026-09-18 (not a replacement — none of the existing entries
+		// were confirmed as this site's duplicate, so it's a net addition).
+		// Verified live; chromedp reaches the real form without
 		// getting stuck on a bot-check, unlike several other BADBOOL sites
 		// tried the same day. See strategies/strategy2_advancedbackgroundchecks.go.
 		{ID: "advancedbackgroundchecks", Name: "AdvancedBackgroundChecks", Strategy: 2, URL: "advancedbackgroundchecks.com"},
@@ -93,7 +97,7 @@ func initBrokers() []Broker {
 		{ID: "usphonebook", Name: "USPhoneBook", Strategy: 2, URL: "usphonebook.com"},
 		{ID: "radaris", Name: "Radaris", Strategy: 2, URL: "radaris.com"},
 
-		// ── Strategy 3: Privacy Page Discovery (25 sites) ────────────────────────
+		// ── Strategy 3: Privacy Page Discovery ──────────────────────────────────
 		{ID: "alignable", Name: "Alignable", Strategy: 3, URL: "alignable.com"},
 		{ID: "allpeople", Name: "AllPeople.biz", Strategy: 3, URL: "allpeople.biz"},
 		{ID: "enpnetwork", Name: "ENP Network", Strategy: 3, URL: "enpnetwork.com"},
@@ -120,7 +124,7 @@ func initBrokers() []Broker {
 		{ID: "h1bdata", Name: "h1bdata.info", Strategy: 3, URL: "h1bdata.info"},
 		{ID: "imagemaps", Name: "image-maps.com", Strategy: 3, URL: "image-maps.com"},
 
-		// ── Strategy 4: Business Directories (18 sites) ──────────────────────────
+		// ── Strategy 4: Business Directories ────────────────────────────────────
 		{ID: "amfibi", Name: "Amfibi", Strategy: 4, URL: "amfibi.com"},
 		{ID: "azcorpcorp", Name: "AZ Corp Commission", Strategy: 4, URL: "azcc.gov"},
 		{ID: "ausibiz", Name: "AusiBiz", Strategy: 4, URL: "ausibiz.com"},
@@ -140,7 +144,7 @@ func initBrokers() []Broker {
 		{ID: "localchiros", Name: "localchiros.com", Strategy: 4, URL: "localchiros.com"},
 		{ID: "ppploaninfo", Name: "ppp-loan.info", Strategy: 4, URL: "ppp-loan.info"},
 
-		// ── Strategy 5: Phone Directories via WHOIS (12 sites) ───────────────────
+		// ── Strategy 5: Phone Directories via WHOIS ─────────────────────────────
 		{ID: "1called", Name: "1called.com", Strategy: 5, URL: "1called.com"},
 		{ID: "1whonet", Name: "1who.net", Strategy: 5, URL: "1who.net"},
 		{ID: "411reverselookup", Name: "411reverselookup.ca", Strategy: 5, URL: "411reverselookup.ca"},
@@ -154,7 +158,7 @@ func initBrokers() []Broker {
 		{ID: "validnumber", Name: "Valid Number", Strategy: 5, URL: "validnumber.com"},
 		{ID: "whoseno", Name: "Whoseno", Strategy: 5, URL: "whoseno.com"},
 
-		// ── Strategy 6: Profile Brokers, Manual Research (9 sites) ───────────────
+		// ── Strategy 6: Profile Brokers, Manual Research ────────────────────────
 		{ID: "bradylist", Name: "Brady List", Strategy: 6, URL: "bradylist.com"},
 		{ID: "docplayer", Name: "DocPlayer Inc.", Strategy: 6, URL: "docplayer.net"},
 		{ID: "identiq", Name: "Identiq", Strategy: 6, URL: "identiq.com"},

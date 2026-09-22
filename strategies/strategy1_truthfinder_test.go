@@ -7,6 +7,7 @@ import (
 
 	"github.com/nunchimangchi-dev/unbrokerrdd/internal/agent"
 	"github.com/nunchimangchi-dev/unbrokerrdd/internal/config"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/dashboard"
 	"github.com/nunchimangchi-dev/unbrokerrdd/internal/db"
 	"github.com/nunchimangchi-dev/unbrokerrdd/strategies"
 )
@@ -49,6 +50,35 @@ func TestAllowlist_AllBrokerURLsPass(t *testing.T) {
 		u := "https://" + domain + "/opt-out"
 		if err := agent.ValidateURL(u); err != nil {
 			t.Errorf("allowlist domain %q failed its own check: %v", domain, err)
+		}
+	}
+}
+
+// ── Registry integrity ───────────────────────────────────────────────────────
+
+// TestRegistry_NoDuplicateIDs - broker.ID is the primary key and the switch
+// key every Strategy 2 handler routes on. A duplicate would silently shadow
+// a handler and Seed would quietly ignore the second row.
+func TestRegistry_NoDuplicateIDs(t *testing.T) {
+	seen := map[string]bool{}
+	for _, b := range dashboard.AllBrokers() {
+		if seen[b.ID] {
+			t.Errorf("duplicate broker ID in registry: %q", b.ID)
+		}
+		seen[b.ID] = true
+	}
+}
+
+// TestRegistry_EveryBrokerIsAllowlisted closes a real gap: the allowlist test
+// above only proves allowlisted domains validate, not that every broker the
+// registry declares is actually permitted to be navigated to. Adding a broker
+// and forgetting its allowlist entry would otherwise surface as a confusing
+// runtime "domain not in the broker allowlist" failure during a live run,
+// rather than here.
+func TestRegistry_EveryBrokerIsAllowlisted(t *testing.T) {
+	for _, b := range dashboard.AllBrokers() {
+		if err := agent.ValidateURL("https://" + b.URL + "/"); err != nil {
+			t.Errorf("registry broker %q (%s) is not allowlisted: %v", b.ID, b.URL, err)
 		}
 	}
 }
@@ -235,6 +265,124 @@ func TestStore_LastLiveAttemptAt_NoAttempts(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("expected nil for a broker with no attempts, got %v", got)
+	}
+}
+
+// ── Completion method (automation coverage accounting) ───────────────────────
+
+// TestStore_Settle_LiveSuccessIsAutonomous covers the one path that may
+// claim an autonomous completion: the agent succeeding on a real run.
+func TestStore_Settle_LiveSuccessIsAutonomous(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+
+	_ = store.Seed([]db.Broker{{ID: "b1", Name: "B1", Strategy: 1, URL: "https://truthfinder.com"}})
+	_ = store.SetInProgress("b1")
+	if err := store.Settle("b1", db.StatusSuccess, false /* live */, "ok", "confirmed", ""); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+
+	all, _ := store.GetAll()
+	if all[0].CompletionMethod != db.CompletionAutonomous {
+		t.Errorf("live success should record autonomous, got %q", all[0].CompletionMethod)
+	}
+}
+
+// TestStore_Settle_DryRunNeverClaimsAutonomous guards the obvious way this
+// accounting could quietly inflate: a dry run never submits anything, so it
+// must never look like the automation completed a removal.
+func TestStore_Settle_DryRunNeverClaimsAutonomous(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+
+	_ = store.Seed([]db.Broker{{ID: "b1", Name: "B1", Strategy: 1, URL: "https://truthfinder.com"}})
+	_ = store.SetInProgress("b1")
+	_ = store.Settle("b1", db.StatusSuccess, true /* dryRun */, "ok", "dry run", "")
+
+	all, _ := store.GetAll()
+	if all[0].CompletionMethod == db.CompletionAutonomous {
+		t.Error("a dry run must never be recorded as an autonomous completion")
+	}
+}
+
+// TestStore_Settle_FailureIsNotACompletion - only successes are completions.
+func TestStore_Settle_FailureIsNotACompletion(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+
+	_ = store.Seed([]db.Broker{{ID: "b1", Name: "B1", Strategy: 1, URL: "https://truthfinder.com"}})
+	_ = store.SetInProgress("b1")
+	_ = store.Settle("b1", db.StatusFailed, false /* live */, "nope", "failed", "")
+
+	all, _ := store.GetAll()
+	if all[0].CompletionMethod != db.CompletionNone {
+		t.Errorf("a failed run should record no completion method, got %q", all[0].CompletionMethod)
+	}
+}
+
+func TestStore_SetCompletionMethod_Human(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+
+	_ = store.Seed([]db.Broker{{ID: "b1", Name: "B1", Strategy: 1, URL: "https://truthfinder.com"}})
+	_ = store.SetInProgress("b1")
+	_ = store.Settle("b1", db.StatusSuccess, false, "ok", "done by hand", "")
+	if err := store.SetCompletionMethod("b1", db.CompletionHuman); err != nil {
+		t.Fatalf("SetCompletionMethod: %v", err)
+	}
+
+	stats, err := store.CompletionStats()
+	if err != nil {
+		t.Fatalf("CompletionStats: %v", err)
+	}
+	if stats[db.CompletionHuman] != 1 {
+		t.Errorf("expected 1 human-completed, got %d", stats[db.CompletionHuman])
+	}
+	if stats[db.CompletionAutonomous] != 0 {
+		t.Errorf("expected 0 autonomous after correction, got %d", stats[db.CompletionAutonomous])
+	}
+}
+
+// ── Registry/database reconciliation ─────────────────────────────────────────
+
+// TestStore_OrphanedBrokerIDs pins the drift that went unnoticed for days:
+// Seed is INSERT OR IGNORE, so a broker removed from the registry keeps its
+// row (and keeps counting) until something actively looks for it.
+func TestStore_OrphanedBrokerIDs(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+
+	seeded := []db.Broker{
+		{ID: "kept", Name: "Kept", Strategy: 2, URL: "https://checkpeople.com"},
+		{ID: "removed-from-code", Name: "Gone", Strategy: 2, URL: "https://checkpeople.com"},
+	}
+	_ = store.Seed(seeded)
+
+	// Registry no longer declares the second broker.
+	registry := []db.Broker{seeded[0]}
+
+	orphans, err := store.OrphanedBrokerIDs(registry)
+	if err != nil {
+		t.Fatalf("OrphanedBrokerIDs: %v", err)
+	}
+	if len(orphans) != 1 || orphans[0] != "removed-from-code" {
+		t.Errorf("expected exactly [removed-from-code], got %v", orphans)
+	}
+}
+
+func TestStore_OrphanedBrokerIDs_CleanRegistry(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+
+	seeded := []db.Broker{{ID: "kept", Name: "Kept", Strategy: 2, URL: "https://checkpeople.com"}}
+	_ = store.Seed(seeded)
+
+	orphans, err := store.OrphanedBrokerIDs(seeded)
+	if err != nil {
+		t.Fatalf("OrphanedBrokerIDs: %v", err)
+	}
+	if len(orphans) != 0 {
+		t.Errorf("expected no orphans, got %v", orphans)
 	}
 }
 

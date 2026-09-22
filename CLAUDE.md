@@ -1,6 +1,10 @@
 # databrokergo
 
-**Purpose:** Fully automated AI agent system for removing personal data from ~85 data brokers. Built as a real-world showcase of AI solving a genuine privacy problem — not just a script. Every meaningful decision is made by an AI model.
+**Purpose:** An AI agent system for removing personal data from real US data brokers. A genuine attempt at a real privacy problem, not a script with an LLM bolted on.
+
+**Be precise about what "automated" means here.** Several target sites actively detect and block automated browser sessions, and this project does not attempt to defeat CAPTCHAs or bot-detection — a deliberate line, see HANDOFF.md. Where automation is blocked, the tool routes to a human-completed path rather than recording a success it didn't earn. The database records which actually happened: `completion_method` is `autonomous` only when the agent completed a removal unattended on a live run, and nothing except a successful live run can set it.
+
+**Do not hand-write broker counts or automation claims into docs.** Every hand-maintained copy of those numbers has drifted out of date (85 / 86 / 87 / 95 have all been "current" simultaneously in different files). `databrokergo status` is the authority for registry size, database state, orphaned rows, status breakdown, and the autonomous-vs-human completion split.
 
 **Owner:** you@example.com
 
@@ -14,7 +18,7 @@ An AI-powered data broker opt-out orchestrator. It:
 3. Updates a real-time dashboard (3D pixel art, localhost:8080) via WebSocket
 4. Runs incrementally — each batch is QA-gated before the next one starts
 
-All 85 brokers and their strategy assignments live inline in `internal/dashboard/brokers.go` — that's the single source of truth (no separate registry file).
+Brokers and their strategy assignments live inline in `internal/dashboard/brokers.go` — that's the canonical registry (no separate registry file). The registry declares intent; the SQLite database holds live state. They can drift apart (`Seed` is INSERT OR IGNORE, so removing a broker from code never deletes its row) — `databrokergo status` reports orphans where they disagree.
 
 ---
 
@@ -34,12 +38,13 @@ internal/
   db/
     store.go      ← SQLite state: broker status, attempt log, timestamps
   dashboard/
-    brokers.go    ← all 85 brokers + strategy assignments (source of truth)
+    brokers.go    ← canonical broker registry + strategy assignments
     server.go     ← Go HTTP + WebSocket server on :8080
     static/       ← frontend: dashboard UI (index.html + aether-core.css)
 strategies/
   strategy1_truthfinder.go      ← 7 sites, 1 form submission — IMPLEMENTED
-  (strategies 2-6: planned, not yet built — see below)
+  strategy2_*.go                ← per-site handlers (checkpeople, advancedbackgroundchecks, spokeo)
+  (strategies 3-6: planned, not yet built — see below)
 ```
 
 Note: earlier drafts of this doc described a broader file layout (`agent/browser.go`, `agent/email.go`, `agent/whois.go`, a `databrokergo.md` registry file) that was never actually built — this section now reflects what's really on disk.
@@ -48,16 +53,26 @@ Note: earlier drafts of this doc described a broader file layout (`agent/browser
 
 ## The 6 Strategies
 
-| # | Name | Sites | Mechanism | Status |
-|---|------|-------|-----------|--------|
-| 1 | TruthFinder Affiliates | 7 | 1 suppression request at suppression.peopleconnect.us (PeopleConnect's shared portal), chromedp + Claude Haiku vision validation | **Built** — corrected 2026-09-17, see HANDOFF.md |
-| 2 | Hidden Opt-Out Pages | 15 (was 14 — added AdvancedBackgroundChecks 2026-09-18) | Navigate to /opt-out URL, fill form | **Partially built** — 2/15 (CheckPeople, AdvancedBackgroundChecks), rest route to manual |
-| 3 | Privacy Page Discovery | 25 | Scrape contact email → send CCPA email | Planned |
-| 4 | Business Directories | 18 | Search name → skip if not found | Planned |
-| 5 | Phone Directories (WHOIS) | 12 | WHOIS lookup → send CCPA email | Planned |
-| 6 | Profile Brokers | 9 | Account-based deletion or flag manual | Planned |
+Per-strategy site counts are intentionally omitted here — run `databrokergo status`
+for live numbers. Only the build state is tracked in this table.
 
-The broker registry (86 targets in `brokers.go`, was 85 before AdvancedBackgroundChecks was added 2026-09-18) is fully seeded across all 6 strategy buckets today. Strategy 1's agent is wired up for its whole bucket (one PeopleConnect suppression submission cascades all 7 — see the 2026-09-17 correction in `HANDOFF.md`, it used to hit the wrong TruthFinder control entirely). Strategy 2 (`strategies/strategy2_checkpeople.go` + `strategy2_advancedbackgroundchecks.go`) is a router, not a single mechanism like Strategy 1 — each broker.ID needs its own verified selectors (real sites have cookie banners, iframes, bot-check interstitials, and multi-step disclosure that don't yield to one generic vision pass), so only `checkpeople` and `advancedbackgroundchecks` have working handlers; every other Strategy 2 broker.ID is deliberately routed to `StatusManual` rather than guessed at. See the 2026-09-17 and 2026-09-18 entries in `HANDOFF.md` for what was tried, what actually blocks automation on the rest of the BADBOOL list (bot-checks that block chromedp outright, profile-URL disambiguation needed for correctness, PII fields the tool deliberately doesn't collect), and why. Strategies 3-6 remain fully roadmap, not yet implemented.
+| # | Name | Mechanism | Build state |
+|---|------|-----------|-------------|
+| 1 | TruthFinder Affiliates | 1 suppression request at suppression.peopleconnect.us (PeopleConnect's shared portal), chromedp + Claude Haiku vision validation | **Built** — corrected 2026-09-17, see HANDOFF.md |
+| 2 | Hidden Opt-Out Pages | Per-site handler: navigate to opt-out URL, fill form, validate | **Partially built** — handlers for `checkpeople`, `advancedbackgroundchecks`, `spokeo`; every other broker.ID routes to manual |
+| 3 | Privacy Page Discovery | Scrape contact email → send CCPA email | Planned — needs Gmail OAuth2, not started |
+| 4 | Business Directories | Search name → skip if not found | Planned — not started |
+| 5 | Phone Directories (WHOIS) | WHOIS lookup → send CCPA email | Planned — needs Gmail OAuth2, not started |
+| 6 | Profile Brokers | Account-based deletion or flag manual | Planned — not started |
+
+Strategy 1's agent covers its whole bucket (one PeopleConnect suppression submission cascades to the affiliates — see the 2026-09-17 correction in `HANDOFF.md`, it used to hit the wrong TruthFinder control entirely).
+
+Strategy 2 is a **router, not a single mechanism** — each broker.ID needs its own live-verified selectors, because real sites vary wildly (cookie banners, iframes, hidden inputs behind styled labels, bot-check interstitials, search-and-select-your-listing steps). Any broker.ID without a verified handler routes to `StatusManual` rather than being guessed at. Two cautionary examples, both of which cost real debugging time:
+
+- **Don't infer a blocker from a failure mode.** CheckPeople timed out for days and was classified `bot_defended` by pattern-matching to Strategy 1's genuine bot-detection. The real cause was a zero-size hidden checkbox that needed its wrapping `<label>` clicked. It was never a defense at all.
+- **Don't classify a site without loading it.** Five sites were marked `needs_profile_url` from documentation alone; when actually checked, four turned out to be bot-defended and only Spokeo was genuinely clean.
+
+See the 2026-09-17, 09-18, and 09-22 entries in `HANDOFF.md` for what's been tried and what really blocks the rest.
 
 ---
 
@@ -98,9 +113,32 @@ pending     → not yet attempted
 in_progress → agent currently working
 success     → opt-out submitted/confirmed
 failed      → attempted, error or no opt-out path found
-skipped     → business directory with no personal results
+skipped     → nothing to do (no matching record, dead site)
 manual      → requires human action (flagged by agent)
 ```
+
+`status` alone is too coarse to act on — a broker can be `manual` for several
+genuinely different reasons, and only some are worth ever retrying. Two more
+columns carry that detail:
+
+```
+blocker_type       → WHY it's stuck:
+  dead_site          domain gone/parked/seized — nothing to do, ever
+  bot_defended       active anti-automation defense — do not attempt evasion
+  needs_profile_url  requires search-and-select-your-listing first
+  no_mechanism       no self-serve opt-out found anywhere on the site
+  missing_field      needs PII the tool deliberately doesn't collect
+  covered_by_other   resolved via another broker's submission (see covered_by)
+  unbuilt            straightforward site, handler just not written yet
+
+completion_method  → HOW a success was achieved:
+  autonomous         the agent did it unattended on a live run
+  human_completed    a person performed the submission
+```
+
+`completion_method` is the project's real scoreboard. Only `Settle` on a
+successful live run can set `autonomous`; the `completed` CLI command marks
+human work and cannot claim otherwise.
 
 ---
 
@@ -118,11 +156,21 @@ manual      → requires human action (flagged by agent)
 ## Key Commands
 
 ```bash
-go run ./cmd/databrokergo serve        # start dashboard + agent loop
-go run ./cmd/databrokergo run --batch 1 # run specific batch
-go run ./cmd/databrokergo status        # print current state table
-go run ./cmd/databrokergo reset --broker "TruthFinder" # reset a broker to pending
+go run ./cmd/databrokergo serve         # start dashboard + agent loop
+go run ./cmd/databrokergo run --strategy 2 [--dry-run] [--limit N]
+go run ./cmd/databrokergo status        # AUTHORITATIVE: registry vs db, orphans,
+                                        # status breakdown, autonomous-vs-human split
+go run ./cmd/databrokergo reset --broker checkpeople          # back to pending
+go run ./cmd/databrokergo blocker --broker nuwber --type bot_defended
+go run ./cmd/databrokergo set-profile-url --broker spokeo --url <listing-url>
+go run ./cmd/databrokergo completed --broker spokeo --note "..."  # human-completed
 ```
+
+`run` against a broker with a recent real attempt is refused by a 48h cooldown
+(`orchestrator.CooldownWindow`), checked against the permanent attempts log so
+it survives a `reset`. That exists because repeated same-day automated traffic
+from one IP is what got AdvancedBackgroundChecks CAPTCHA-gated — a self-inflicted
+block. Don't work around it; it's pacing, not an obstacle.
 
 ---
 
