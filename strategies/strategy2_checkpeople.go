@@ -111,9 +111,16 @@ func (s *Strategy2) runBrowser(ctx context.Context, cfg *config.Config) (agent.R
 	}
 
 	step(2, total, "Filling opt-out request form")
+	// #acknowledge itself is a zero-size hidden native checkbox (verified
+	// live 2026-09-22, via getBoundingClientRect - not assumed); the real
+	// site pairs it with a visible <label class="cp-auto-optout__checkbox-
+	// container"> that wraps it, which is what actually needs the click
+	// (standard label-forwarding). chromedp.Click waits for its target to
+	// become visible before clicking, and #acknowledge never does - that's
+	// what "context deadline exceeded" here always was, not a bot defense.
 	if err := chromedp.Run(taskCtx,
 		chromedp.SendKeys(`#requestorEmail`, cfg.SubjectEmail, chromedp.ByID),
-		chromedp.Click(`#acknowledge`, chromedp.ByID),
+		chromedp.Click(`.cp-auto-optout__checkbox-container`, chromedp.ByQuery),
 	); err != nil {
 		return agent.Result{Status: db.StatusFailed}, fmt.Errorf("fill form: %w", err)
 	}
