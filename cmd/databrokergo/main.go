@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nunchimangchi-dev/unbrokerrdd/internal/config"
@@ -650,9 +651,113 @@ func main() {
 			fmt.Println("  (nothing written — re-run with --apply to record blocker_type=dead_site)")
 		}
 
+	case "discover":
+		args := parseFlags(os.Args[2:])
+		_, apply := args["apply"]
+
+		store, err := openStore()
+		if err != nil {
+			log.Fatalf("open store: %v", err)
+		}
+		defer store.Close()
+
+		all, err := store.GetAll()
+		if err != nil {
+			log.Fatalf("read brokers: %v", err)
+		}
+
+		strategy := 3
+		if args["strategy"] != "" {
+			if n, convErr := strconv.Atoi(args["strategy"]); convErr == nil {
+				strategy = n
+			}
+		}
+
+		var targets []db.Broker
+		for _, b := range all {
+			if args["broker"] != "" {
+				if b.ID == args["broker"] {
+					targets = append(targets, b)
+				}
+				continue
+			}
+			if b.Strategy != strategy || b.PrivacyEmail != "" ||
+				b.BlockerType == db.BlockerDeadSite || b.Status == db.StatusSuccess {
+				continue
+			}
+			targets = append(targets, b)
+		}
+		if n, convErr := strconv.Atoi(args["limit"]); convErr == nil && n < len(targets) {
+			targets = targets[:n]
+		}
+		if len(targets) == 0 {
+			fmt.Println("nothing to discover")
+			return
+		}
+
+		fmt.Printf("privacy-contact discovery — %d site(s), read-only, nothing is sent\n\n", len(targets))
+
+		var found, none int
+		for _, b := range targets {
+			res, dErr := agent.DiscoverPrivacyContact(context.Background(), b.URL)
+			if dErr != nil {
+				none++
+				fmt.Printf("  !  %-26s %v\n", b.ID, dErr)
+				continue
+			}
+			best := res.Best()
+			if best == nil {
+				none++
+				note := res.Notes
+				if note == "" {
+					note = "no usable address on the privacy page"
+				}
+				fmt.Printf("  —  %-26s %s\n", b.ID, note)
+				// Print what it DID see. "Found nothing" from a discoverer
+				// that never reached a policy page is a different claim from
+				// "this site publishes no address", and the difference has to
+				// be visible or it becomes another no_mechanism guess.
+				if res.PolicyURL != "" {
+					fmt.Printf("     policy page: %s\n", res.PolicyURL)
+				} else {
+					fmt.Printf("     no privacy link found on the homepage\n")
+				}
+				if len(res.Candidates) > 0 {
+					var seen []string
+					for _, c := range res.Candidates[:min(4, len(res.Candidates))] {
+						seen = append(seen, fmt.Sprintf("%s [%s]", c.Email, c.Why))
+					}
+					fmt.Printf("     addresses seen but rejected: %s\n", strings.Join(seen, ", "))
+				}
+				continue
+			}
+			found++
+			fmt.Printf("  ✓  %-26s %-34s (%s)\n", b.ID, best.Email, best.Why)
+			fmt.Printf("     found on %s\n", best.Source)
+			if len(res.Candidates) > 1 {
+				var others []string
+				for _, c := range res.Candidates[1:min(4, len(res.Candidates))] {
+					others = append(others, c.Email)
+				}
+				fmt.Printf("     also: %s\n", strings.Join(others, ", "))
+			}
+			if apply {
+				if err := store.SetPrivacyContact(b.ID, best.Email, best.Source); err != nil {
+					fmt.Printf("     ! could not record: %v\n", err)
+				}
+			}
+		}
+
+		fmt.Printf("\n  contact found %d · none found %d\n", found, none)
+		if !apply && found > 0 {
+			fmt.Println("  (nothing written — re-run with --apply to record the addresses)")
+		}
+		fmt.Println("\n  a recorded address is a target, not a sent request — nothing is")
+		fmt.Println("  emailed until the send path exists and you approve each batch.")
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe | presence | reach")
+		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe | presence | reach | discover")
 		os.Exit(1)
 	}
 }

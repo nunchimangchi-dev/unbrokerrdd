@@ -94,6 +94,8 @@ type Broker struct {
 	CompletionMethod CompletionMethod
 	Presence         Presence
 	PresenceCheckedAt *time.Time
+	PrivacyEmail       string // discovered CCPA/deletion-request address for strategies 3 and 5
+	PrivacyEmailSource string // the page it was found on, so it can be checked
 }
 
 // Store wraps the SQLite connection and exposes broker operations.
@@ -140,6 +142,8 @@ func (s *Store) migrate() error {
 			completion_method   TEXT NOT NULL DEFAULT '',
 			presence            TEXT NOT NULL DEFAULT '',
 			presence_checked_at TIMESTAMP,
+			privacy_email       TEXT,
+			privacy_email_source TEXT,
 			created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
@@ -184,7 +188,13 @@ func (s *Store) migrate() error {
 	if err := s.addColumnIfMissing("brokers", "presence", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
-	return s.addColumnIfMissing("brokers", "presence_checked_at", "TIMESTAMP")
+	if err := s.addColumnIfMissing("brokers", "presence_checked_at", "TIMESTAMP"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("brokers", "privacy_email", "TEXT"); err != nil {
+		return err
+	}
+	return s.addColumnIfMissing("brokers", "privacy_email_source", "TEXT")
 }
 
 // addColumnIfMissing upgrades an existing database created before a column
@@ -339,7 +349,8 @@ func (s *Store) GetAll() ([]Broker, error) {
 		SELECT id, name, strategy, url, status, attempt_count,
 		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,''),
 		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,''), completion_method,
-		       presence, presence_checked_at
+		       presence, presence_checked_at,
+		       COALESCE(privacy_email,''), COALESCE(privacy_email_source,'')
 		FROM brokers ORDER BY strategy, name
 	`)
 	if err != nil {
@@ -355,7 +366,8 @@ func (s *Store) GetPendingByStrategy(strategy int) ([]Broker, error) {
 		SELECT id, name, strategy, url, status, attempt_count,
 		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,''),
 		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,''), completion_method,
-		       presence, presence_checked_at
+		       presence, presence_checked_at,
+		       COALESCE(privacy_email,''), COALESCE(privacy_email_source,'')
 		FROM brokers
 		WHERE strategy = ? AND status = 'pending'
 		ORDER BY name`,
@@ -456,6 +468,20 @@ func (s *Store) SetPresence(id string, p Presence, evidence string) error {
 	}
 
 	return tx.Commit()
+}
+
+// SetPrivacyContact records a discovered deletion-request address and the page
+// it came from. The source is stored alongside the address deliberately: an
+// address with no provenance is a guess, and a request sent to a guessed
+// mailbox is indistinguishable from one that was never sent.
+func (s *Store) SetPrivacyContact(id, email, source string) error {
+	_, err := s.db.Exec(`
+		UPDATE brokers SET privacy_email = ?, privacy_email_source = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`, email, source, id)
+	if err != nil {
+		return fmt.Errorf("set privacy contact for %s: %w", id, err)
+	}
+	return nil
 }
 
 // PresenceStats counts brokers by presence finding across the whole registry.
@@ -809,6 +835,7 @@ func scanBrokers(rows *sql.Rows) ([]Broker, error) {
 			&b.AttemptCount, &lat, &b.ConfirmationURL, &b.Notes,
 			&blockerType, &coveredBy, &profileURL, &completionMethod,
 			&presence, &pat,
+			&b.PrivacyEmail, &b.PrivacyEmailSource,
 		); err != nil {
 			return nil, err
 		}

@@ -102,3 +102,33 @@ classifications made from a single ambiguous signal. A domain that fails DNS
 but loads in the browser is explicitly reported as local noise.
 
 Without `--apply`, it writes nothing.
+
+### The sweep that got it wrong first
+
+The first full sweep reported 13 dead domains. Ten of them were alive.
+
+The two checks were not independent. The browser resolves through the same
+system resolver as the DNS check, and this machine's resolver is Tailscale
+MagicDNS (100.100.100.100). When MagicDNS stopped answering, every lookup timed
+out, the browser failed identically, and "both checks failed" read as
+corroboration when it was one failure counted twice. Among the domains it
+condemned was `businesssearch.sos.ca.gov` — the California Secretary of State.
+
+Two fixes, both in `resolve()`:
+
+1. **A non-answer is not an answer.** A timeout or SERVFAIL now returns
+   `definitive=false` and can never produce a dead verdict, no matter what the
+   browser did. Only an authoritative reply counts.
+2. **Ask someone else.** When the system resolver does not answer, the lookup
+   escalates to 1.1.1.1 and then 8.8.8.8. That is what makes the second check
+   genuinely independent rather than a second view of the same outage.
+
+Re-verified afterwards, the 13 became 9 genuinely dead, 1 alive (`prehired.io`,
+which resolves fine via 1.1.1.1), 1 falsely flagged as parked (`oldphonebook`),
+and the rest inconclusive pending a quiet network.
+
+One of the survivors is worth its own note. `businesssearch.sos.ca.gov` really
+is NXDOMAIN on two of three public resolvers — but `sos.ca.gov` is healthy and
+the service now lives at `bizfileonline.sos.ca.gov`. The target is not dead;
+the registry's URL for it is stale. Those are different problems and should not
+share a `blocker_type`.
