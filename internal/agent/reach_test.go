@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestReachability_Verdict(t *testing.T) {
 	cases := []struct {
@@ -149,5 +152,28 @@ func TestWhoisResult_BestIgnoresRegistrar(t *testing.T) {
 	}}
 	if best := r.Best(); best != nil {
 		t.Errorf("Best() returned a registrar desk: %+v", best)
+	}
+}
+
+func TestParkedSignals_CatchCommonPhrasings(t *testing.T) {
+	// Each of these is a real parked-page rendering. The list previously held
+	// only the longer phrasings and reported a for-sale domain as alive.
+	for _, page := range []string{
+		"Newcon.com for sale | Spaceship.com — Domain for sale",
+		"This domain is for sale, make an offer",
+		"Buy this domain",
+		"example.io for sale",
+	} {
+		low := strings.ToLower(page)
+		matched := false
+		for _, sig := range parkedSignals {
+			if strings.Contains(low, sig) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Errorf("no parked signal matched %q", page)
+		}
 	}
 }

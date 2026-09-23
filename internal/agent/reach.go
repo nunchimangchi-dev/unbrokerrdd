@@ -32,6 +32,15 @@ type Reachability struct {
 // A resolving domain that serves one of these is gone in every sense that
 // matters here: there is no opt-out mechanism behind it and never will be.
 var parkedSignals = []string{
+	// Bare "domain for sale" and "<name>.com for sale" are the common forms
+	// and were both missed by the longer phrasings below: newcon.com served a
+	// page titled "Newcon.com for sale | Spaceship.com" whose body opened
+	// "Domain for sale", and the sweep reported it alive.
+	"domain for sale",
+	".com for sale",
+	".net for sale",
+	".org for sale",
+	".io for sale",
 	"this domain is for sale",
 	"buy this domain",
 	"domain may be for sale",
