@@ -45,14 +45,19 @@ func TestBuildSearchURL_ErrorDoesNotLeakName(t *testing.T) {
 func TestScrubSubject(t *testing.T) {
 	// The exact shape that leaked in practice: a classifier quoting the name
 	// back inside its evidence, on its way to the database.
-	in := "No results for Warren Shubin; warren shubin was not found."
-	got := ScrubSubject(in, "Warren Shubin")
-	for _, bad := range []string{"Warren", "Shubin", "warren", "shubin"} {
+	//
+	// The fixture is deliberately a fictional name. An earlier version used
+	// the actual subject's, which put a real person's full name into a test
+	// file in a public repository - in the one test asserting that this
+	// project does not spread that name around.
+	in := "No results for Ada Lovelace; ada lovelace was not found."
+	got := ScrubSubject(in, "Ada Lovelace")
+	for _, bad := range []string{"Ada", "Lovelace", "ada", "lovelace"} {
 		if strings.Contains(got, bad) {
 			t.Errorf("ScrubSubject left %q in %q", bad, got)
 		}
 	}
-	if !strings.Contains(got, "W***") || !strings.Contains(got, "S***") {
+	if !strings.Contains(got, "A***") || !strings.Contains(got, "L***") {
 		t.Errorf("expected masked initials, got %q", got)
 	}
 }
