@@ -108,12 +108,21 @@ func Probe(ctx context.Context, url string) (*ProbeResult, error) {
 // SuggestedBlocker maps a probe result to the blocker_type it implies, or ""
 // when the page looks workable. Advisory only - the operator still decides.
 func (r *ProbeResult) SuggestedBlocker() string {
+	// A navigation error means the browser never completed the request - it
+	// could not start, DNS failed, the context expired. None of that is
+	// evidence about the site, and treating it as such is the exact mistake
+	// this whole file exists to stop. It once reported bot_defended for a
+	// local Chrome launch failure. No response, no conclusion.
+	if r.NavErr != "" {
+		return ""
+	}
 	switch {
 	case r.Challenge:
 		return "bot_defended"
 	case r.Captcha:
 		return "bot_defended"
-	case r.NavErr != "" || r.Title == "403 Forbidden" || r.Title == "Access Denied":
+	case r.Title == "403 Forbidden" || r.Title == "Access Denied":
+		// A title at all means the site answered us. That is evidence.
 		return "bot_defended"
 	case len(r.Inputs) == 0:
 		return "" // nothing rendered; could be no_mechanism, could be the wrong URL - operator's call

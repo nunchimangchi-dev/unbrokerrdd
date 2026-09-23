@@ -59,6 +59,24 @@ const (
 	CompletionHuman     CompletionMethod = "human_completed" // a person performed the actual submission, however the tool assisted
 )
 
+// Presence records whether the subject actually appears on a broker at all.
+//
+// This is deliberately a separate axis from Status and CompletionMethod. A site
+// the subject was never listed on is not a removal, and must never be counted
+// as one - but it is also not a failure, and it is the single most common
+// honest outcome across business directories and niche profile sites. Keeping
+// it in its own column means "how many sites list me" and "how many did the
+// tool get me off" stay two different numbers that cannot be confused for each
+// other.
+type Presence string
+
+const (
+	PresenceUnknown      Presence = ""             // never checked
+	PresencePresent      Presence = "present"      // subject appears in search results
+	PresenceAbsent       Presence = "absent"       // search ran cleanly, no record of the subject
+	PresenceUndetermined Presence = "undetermined" // check ran but could not be trusted either way
+)
+
 // Broker is one row in the brokers table.
 type Broker struct {
 	ID               string
@@ -74,6 +92,8 @@ type Broker struct {
 	CoveredBy        string // broker ID whose submission also resolves this one, when BlockerType == covered_by_other
 	ProfileURL       string // subject's own listing URL, for sites requiring search-and-select-your-record before opt-out (see BlockerNeedsProfileURL)
 	CompletionMethod CompletionMethod
+	Presence         Presence
+	PresenceCheckedAt *time.Time
 }
 
 // Store wraps the SQLite connection and exposes broker operations.
@@ -118,6 +138,8 @@ func (s *Store) migrate() error {
 			covered_by          TEXT,
 			profile_url         TEXT,
 			completion_method   TEXT NOT NULL DEFAULT '',
+			presence            TEXT NOT NULL DEFAULT '',
+			presence_checked_at TIMESTAMP,
 			created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
@@ -156,7 +178,13 @@ func (s *Store) migrate() error {
 	if err := s.addColumnIfMissing("brokers", "profile_url", "TEXT"); err != nil {
 		return err
 	}
-	return s.addColumnIfMissing("brokers", "completion_method", "TEXT NOT NULL DEFAULT ''")
+	if err := s.addColumnIfMissing("brokers", "completion_method", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("brokers", "presence", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	return s.addColumnIfMissing("brokers", "presence_checked_at", "TIMESTAMP")
 }
 
 // addColumnIfMissing upgrades an existing database created before a column
@@ -310,7 +338,8 @@ func (s *Store) GetAll() ([]Broker, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, strategy, url, status, attempt_count,
 		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,''),
-		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,''), completion_method
+		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,''), completion_method,
+		       presence, presence_checked_at
 		FROM brokers ORDER BY strategy, name
 	`)
 	if err != nil {
@@ -325,7 +354,8 @@ func (s *Store) GetPendingByStrategy(strategy int) ([]Broker, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, strategy, url, status, attempt_count,
 		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,''),
-		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,''), completion_method
+		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,''), completion_method,
+		       presence, presence_checked_at
 		FROM brokers
 		WHERE strategy = ? AND status = 'pending'
 		ORDER BY name`,
@@ -382,6 +412,70 @@ func (s *Store) SetCompletionMethod(id string, method CompletionMethod) error {
 		string(method), id,
 	)
 	return err
+}
+
+// SetPresence records what a presence check concluded about a broker.
+//
+// It deliberately does NOT write to the attempts log. A presence check never
+// submits anything and never touches an opt-out form, so counting it as an
+// attempt would trip the 48h cooldown that exists to pace real submissions -
+// the same mistake manual-routed attempts caused before they were excluded
+// from LastLiveAttemptAt. Looking at a site is not attempting it.
+//
+// When the subject is absent the broker is moved to 'skipped', which is what
+// that status has always meant ("nothing to do - no matching record"). Nothing
+// here can ever set a success or a completion_method: establishing that there
+// was no record is not a removal, and must not be counted as one.
+func (s *Store) SetPresence(id string, p Presence, evidence string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		UPDATE brokers SET
+			presence            = ?,
+			presence_checked_at = CURRENT_TIMESTAMP,
+			notes               = COALESCE(NULLIF(?, ''), notes),
+			updated_at          = CURRENT_TIMESTAMP
+		WHERE id = ?`,
+		string(p), evidence, id,
+	); err != nil {
+		return fmt.Errorf("set presence for %s: %w", id, err)
+	}
+
+	if p == PresenceAbsent {
+		if _, err := tx.Exec(`
+			UPDATE brokers SET status = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ? AND status = ?`,
+			string(StatusSkipped), id, string(StatusPending),
+		); err != nil {
+			return fmt.Errorf("skip absent broker %s: %w", id, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// PresenceStats counts brokers by presence finding across the whole registry.
+func (s *Store) PresenceStats() (map[Presence]int, error) {
+	rows, err := s.db.Query(`SELECT presence, COUNT(*) FROM brokers GROUP BY presence`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[Presence]int{}
+	for rows.Next() {
+		var p string
+		var n int
+		if err := rows.Scan(&p, &n); err != nil {
+			return nil, err
+		}
+		out[Presence(p)] = n
+	}
+	return out, rows.Err()
 }
 
 // CompletionStats counts successes by how they were actually completed.
@@ -708,16 +802,19 @@ func scanBrokers(rows *sql.Rows) ([]Broker, error) {
 	var out []Broker
 	for rows.Next() {
 		var b Broker
-		var lat *time.Time
-		var blockerType, coveredBy, profileURL, completionMethod string
+		var lat, pat *time.Time
+		var blockerType, coveredBy, profileURL, completionMethod, presence string
 		if err := rows.Scan(
 			&b.ID, &b.Name, &b.Strategy, &b.URL, &b.Status,
 			&b.AttemptCount, &lat, &b.ConfirmationURL, &b.Notes,
 			&blockerType, &coveredBy, &profileURL, &completionMethod,
+			&presence, &pat,
 		); err != nil {
 			return nil, err
 		}
 		b.LastAttemptAt = lat
+		b.PresenceCheckedAt = pat
+		b.Presence = Presence(presence)
 		b.BlockerType = BlockerType(blockerType)
 		b.CoveredBy = coveredBy
 		b.ProfileURL = profileURL

@@ -179,6 +179,10 @@ func main() {
 		if err != nil {
 			log.Fatalf("blocker stats: %v", err)
 		}
+		presence, err := store.PresenceStats()
+		if err != nil {
+			log.Fatalf("presence stats: %v", err)
+		}
 
 		fmt.Printf("DATABROKER.GO v%s — broker status\n\n", version)
 
@@ -219,6 +223,22 @@ func main() {
 					fmt.Printf("    %-18s %d\n", b, n)
 				}
 			}
+		}
+
+		// Exposure, not progress. Every claim this project makes is measured
+		// against a denominator, and an unchecked registry is not one — it is a
+		// list of sites the subject may not even be on. Until these are
+		// checked, "95 brokers" describes the tool's ambition, not anyone's
+		// actual exposure.
+		fmt.Printf("\n  ACTUAL EXPOSURE (presence checks):\n")
+		fmt.Printf("    %-18s %d\n", "confirmed listed", presence[db.PresencePresent])
+		fmt.Printf("    %-18s %d\n", "confirmed absent", presence[db.PresenceAbsent])
+		fmt.Printf("    %-18s %d\n", "undetermined", presence[db.PresenceUndetermined])
+		fmt.Printf("    %-18s %d\n", "never checked", presence[db.PresenceUnknown])
+		if presence[db.PresenceUnknown] > 0 {
+			fmt.Printf("    → %d of %d targets have never been checked for a record at all;\n",
+				presence[db.PresenceUnknown], total)
+			fmt.Printf("      any coverage percentage over %d is not yet a real number.\n", total)
 		}
 
 	// ── reset ──────────────────────────────────────────────────────────
@@ -387,15 +407,252 @@ func main() {
 		if snippet := res.BodySnippet; snippet != "" {
 			fmt.Printf("\n  body starts: %.160s\n", snippet)
 		}
-		if b := res.SuggestedBlocker(); b != "" {
+		if probeErr != nil {
+			fmt.Printf("\n  → NO CONCLUSION about this site: the browser never completed the\n")
+			fmt.Printf("    request, so nothing here is evidence about the site itself.\n")
+			fmt.Printf("    Check the local browser before classifying anything.\n")
+		} else if b := res.SuggestedBlocker(); b != "" {
 			fmt.Printf("\n  → suggests blocker_type=%s\n", b)
 		} else {
 			fmt.Printf("\n  → no block detected; if a handler still fails here, it's the selectors, not the site\n")
 		}
 
+	case "presence":
+		args := parseFlags(os.Args[2:])
+
+		cfg, err := config.Load()
+		if err != nil {
+			log.Fatalf("config: %v", err)
+		}
+		if cfg.SubjectName == "" {
+			log.Fatal("SUBJECT_NAME is not set; a presence check has nothing to search for")
+		}
+
+		// Ad-hoc mode: verify a candidate search template live before it is
+		// ever committed to SearchTemplates. --name supplies a stand-in, so a
+		// template can be proven against a site without the subject's real
+		// name entering a terminal, a log, or a pasted transcript. This is the
+		// gate the map's doc comment refers to: nothing goes in untested.
+		if _, verify := args["verify-template"]; verify && args["url"] != "" {
+			tmpl := args["url"]
+			fmt.Printf("verifying search template against %s\n  %s\n\n", args["site"], tmpl)
+			fmt.Println("  running a control experiment: one name that must be found,")
+			fmt.Println("  one that cannot be. A template only earns trust by passing both.")
+			fmt.Println()
+
+			v, vErr := agent.VerifyTemplate(context.Background(), cfg.AnthropicKey, args["site"], tmpl, args["control"], args["decoy"])
+			if vErr != nil {
+				log.Fatalf("%v", vErr)
+			}
+			fmt.Printf("  control  %-13s %s\n", v.Control.Finding, v.Control.Evidence)
+			fmt.Printf("  decoy    %-13s %s\n", v.Decoy.Finding, v.Decoy.Evidence)
+			if v.Trusted {
+				fmt.Printf("\n  ✓ TRUSTED — %s\n", v.Reasoning)
+				fmt.Println("    safe to add to agent.SearchTemplates")
+			} else {
+				fmt.Printf("\n  ✗ NOT TRUSTED — %s\n", v.Reasoning)
+				fmt.Println("    do not add this to agent.SearchTemplates; its negatives would be false all-clears")
+			}
+			return
+		}
+
+		if tmpl := args["url"]; tmpl != "" {
+			name := args["name"]
+			if name == "" {
+				name = cfg.SubjectName
+			}
+			searchURL, buildErr := agent.BuildSearchURL(tmpl, name)
+			if buildErr != nil {
+				log.Fatalf("%v", buildErr)
+			}
+			fmt.Printf("ad-hoc presence check (read-only)\n  %s\n\n", agent.RedactURL(searchURL))
+			res, checkErr := agent.CheckPresence(context.Background(), cfg.AnthropicKey, args["site"], searchURL, name)
+			if checkErr != nil {
+				log.Fatalf("%v", checkErr)
+			}
+			fmt.Printf("  finding     %s\n", res.Finding)
+			fmt.Printf("  evidence    %s\n", res.Evidence)
+			fmt.Printf("  challenge   %v\n", res.Challenge)
+			fmt.Printf("  page text   %d chars\n", res.PageChars)
+			fmt.Println("\n  nothing written to the database (ad-hoc mode)")
+			return
+		}
+
+		store, err := openStore()
+		if err != nil {
+			log.Fatalf("open store: %v", err)
+		}
+		defer store.Close()
+
+		all, err := store.GetAll()
+		if err != nil {
+			log.Fatalf("read brokers: %v", err)
+		}
+
+		// Select targets: one broker, one strategy, or every broker that has a
+		// verified search template and has not been checked yet.
+		var targets []db.Broker
+		switch {
+		case args["broker"] != "":
+			for _, b := range all {
+				if b.ID == args["broker"] {
+					targets = append(targets, b)
+				}
+			}
+			if len(targets) == 0 {
+				log.Fatalf("no broker with id %q", args["broker"])
+			}
+		case args["strategy"] != "":
+			n, convErr := strconv.Atoi(args["strategy"])
+			if convErr != nil {
+				log.Fatalf("--strategy must be a number: %v", convErr)
+			}
+			for _, b := range all {
+				if b.Strategy == n {
+					targets = append(targets, b)
+				}
+			}
+		default:
+			for _, b := range all {
+				if _, ok := agent.SearchTemplateFor(b.ID); ok && b.Presence == db.PresenceUnknown {
+					targets = append(targets, b)
+				}
+			}
+		}
+
+		if limit := args["limit"]; limit != "" {
+			if n, convErr := strconv.Atoi(limit); convErr == nil && n < len(targets) {
+				targets = targets[:n]
+			}
+		}
+		if len(targets) == 0 {
+			fmt.Println("nothing to check: no matching brokers with a verified search template")
+			return
+		}
+
+		_, dryRun := args["dry-run"]
+		fmt.Printf("presence check — %d target(s), read-only, searching as %s\n\n",
+			len(targets), cfg.Redacted().SubjectName)
+
+		var present, absent, undet, noTemplate int
+		for _, b := range targets {
+			tmpl, ok := agent.SearchTemplateFor(b.ID)
+			if !ok {
+				noTemplate++
+				fmt.Printf("  —  %-24s no verified search template; not checked\n", b.ID)
+				continue
+			}
+			searchURL, buildErr := agent.BuildSearchURL(tmpl, cfg.SubjectName)
+			if buildErr != nil {
+				noTemplate++
+				fmt.Printf("  !  %-24s %v\n", b.ID, buildErr)
+				continue
+			}
+
+			res, checkErr := agent.CheckPresence(context.Background(), cfg.AnthropicKey, b.Name, searchURL, cfg.SubjectName)
+			if checkErr != nil {
+				fmt.Printf("  !  %-24s %v\n", b.ID, checkErr)
+				continue
+			}
+
+			icon := "?"
+			switch res.Finding {
+			case agent.FindingPresent:
+				icon, present = "●", present+1
+			case agent.FindingAbsent:
+				icon, absent = "○", absent+1
+			default:
+				icon, undet = "?", undet+1
+			}
+			fmt.Printf("  %s  %-24s %-13s %s\n", icon, b.ID, res.Finding, res.Evidence)
+			fmt.Printf("     %s\n", agent.RedactURL(res.SearchURL))
+
+			if dryRun {
+				continue
+			}
+			if err := store.SetPresence(b.ID, db.Presence(res.Finding), res.Evidence); err != nil {
+				fmt.Printf("     ! could not record: %v\n", err)
+			}
+		}
+
+		fmt.Printf("\n  present %d · absent %d · undetermined %d · no template %d\n",
+			present, absent, undet, noTemplate)
+		if dryRun {
+			fmt.Println("  (dry run — nothing written to the database)")
+		}
+		if absent > 0 {
+			fmt.Println("\n  absent sites move to 'skipped'. That is not a removal and is never")
+			fmt.Println("  counted as one — it shrinks the denominator, honestly.")
+		}
+
+	case "reach":
+		args := parseFlags(os.Args[2:])
+		_, apply := args["apply"]
+
+		store, err := openStore()
+		if err != nil {
+			log.Fatalf("open store: %v", err)
+		}
+		defer store.Close()
+
+		all, err := store.GetAll()
+		if err != nil {
+			log.Fatalf("read brokers: %v", err)
+		}
+
+		var targets []db.Broker
+		for _, b := range all {
+			if args["broker"] != "" && b.ID != args["broker"] {
+				continue
+			}
+			// Already-classified dead sites need no re-checking, and live
+			// successes are self-evidently reachable.
+			if b.BlockerType == db.BlockerDeadSite || b.Status == db.StatusSuccess {
+				continue
+			}
+			targets = append(targets, b)
+		}
+		if n, convErr := strconv.Atoi(args["limit"]); convErr == nil && n < len(targets) {
+			targets = targets[:n]
+		}
+		if len(targets) == 0 {
+			fmt.Println("nothing to check")
+			return
+		}
+
+		fmt.Printf("reachability sweep — %d domain(s), read-only\n", len(targets))
+		fmt.Printf("two independent checks per domain: DNS, then a real browser load\n\n")
+
+		var dead, alive, odd int
+		for _, b := range targets {
+			r := agent.CheckReachability(context.Background(), b.URL)
+			isDead, reason := r.Verdict()
+			switch {
+			case isDead:
+				dead++
+				fmt.Printf("  ✗ %-26s DEAD  %s\n", b.ID, reason)
+				if apply {
+					if err := store.SetBlocker(b.ID, db.BlockerDeadSite, ""); err != nil {
+						fmt.Printf("      ! could not record: %v\n", err)
+					}
+				}
+			case reason != "":
+				odd++
+				fmt.Printf("  ? %-26s %s\n", b.ID, reason)
+			default:
+				alive++
+				fmt.Printf("  ✓ %-26s alive  %.60q\n", b.ID, r.Title)
+			}
+		}
+
+		fmt.Printf("\n  alive %d · dead %d · needs a look %d\n", alive, dead, odd)
+		if !apply && dead > 0 {
+			fmt.Println("  (nothing written — re-run with --apply to record blocker_type=dead_site)")
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe")
+		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe | presence | reach")
 		os.Exit(1)
 	}
 }

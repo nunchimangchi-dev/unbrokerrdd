@@ -69,7 +69,13 @@ func TestProbe_SuggestedBlocker(t *testing.T) {
 		{"cloudflare challenge", agent.ProbeResult{Title: "Just a moment...", Challenge: true}, "bot_defended"},
 		{"captcha present", agent.ProbeResult{Title: "Opt out", Captcha: true}, "bot_defended"},
 		{"http 403 to automation", agent.ProbeResult{Title: "403 Forbidden"}, "bot_defended"},
-		{"navigation error", agent.ProbeResult{NavErr: "context deadline exceeded"}, "bot_defended"},
+		// A navigation error means we never got a response, so it is not
+		// evidence about the site at all. This case previously asserted
+		// "bot_defended" and that assertion was wrong: a local Chrome launch
+		// failure on 2026-09-23 was duly reported as a site defence, which is
+		// the precise misclassification probe exists to prevent.
+		{"navigation error says nothing about the site", agent.ProbeResult{NavErr: "context deadline exceeded"}, ""},
+		{"navigation error outranks a stale title", agent.ProbeResult{NavErr: "chrome failed to start", Title: "403 Forbidden"}, ""},
 		{"workable form", agent.ProbeResult{
 			Title:  "Opt-Out",
 			Inputs: []agent.ProbeInput{{Name: "email", Type: "email", Visible: true}},
@@ -467,4 +473,117 @@ func tempStore(t *testing.T) (*db.Store, func()) {
 		t.Fatalf("create temp store: %v", err)
 	}
 	return store, func() { store.Close() }
+}
+
+// ── Presence ──────────────────────────────────────────────────────────────────
+
+func seedOne(t *testing.T, store *db.Store, id string, status db.Status) {
+	t.Helper()
+	if err := store.Seed([]db.Broker{{ID: id, Name: id, Strategy: 4, URL: id + ".com", Status: status}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+}
+
+func getBroker(t *testing.T, store *db.Store, id string) db.Broker {
+	t.Helper()
+	all, err := store.GetAll()
+	if err != nil {
+		t.Fatalf("get all: %v", err)
+	}
+	for _, b := range all {
+		if b.ID == id {
+			return b
+		}
+	}
+	t.Fatalf("broker %q not found", id)
+	return db.Broker{}
+}
+
+func TestStore_SetPresence_AbsentSkipsButIsNotASuccess(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "absentsite", db.StatusPending)
+
+	if err := store.SetPresence("absentsite", db.PresenceAbsent, "no results"); err != nil {
+		t.Fatalf("set presence: %v", err)
+	}
+
+	b := getBroker(t, store, "absentsite")
+	if b.Presence != db.PresenceAbsent {
+		t.Errorf("presence = %q, want absent", b.Presence)
+	}
+	if b.Status != db.StatusSkipped {
+		t.Errorf("status = %q, want skipped", b.Status)
+	}
+	// The whole point of keeping presence on its own axis: establishing that
+	// there was never a record must never look like a removal.
+	if b.CompletionMethod != db.CompletionNone {
+		t.Errorf("completion_method = %q, want empty — absence is not a completion", b.CompletionMethod)
+	}
+	if b.PresenceCheckedAt == nil {
+		t.Error("presence_checked_at was not stamped")
+	}
+}
+
+func TestStore_SetPresence_NeverOverwritesRealWork(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "donesite", db.StatusPending)
+	if err := store.Settle("donesite", db.StatusSuccess, false, "ok", "", ""); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+
+	if err := store.SetPresence("donesite", db.PresenceAbsent, "no results"); err != nil {
+		t.Fatalf("set presence: %v", err)
+	}
+
+	b := getBroker(t, store, "donesite")
+	if b.Status != db.StatusSuccess {
+		t.Errorf("status = %q, want success — a presence check must not undo a completed removal", b.Status)
+	}
+}
+
+func TestStore_SetPresence_DoesNotLogAnAttempt(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "lookedatsite", db.StatusPending)
+
+	if err := store.SetPresence("lookedatsite", db.PresencePresent, "found"); err != nil {
+		t.Fatalf("set presence: %v", err)
+	}
+
+	// Looking at a site is not attempting it. If presence checks logged
+	// attempts they would trip the 48h submission cooldown, which is the same
+	// bug manual routing caused before it was excluded from LastLiveAttemptAt.
+	at, err := store.LastLiveAttemptAt("lookedatsite")
+	if err != nil {
+		t.Fatalf("last live attempt: %v", err)
+	}
+	if at != nil {
+		t.Errorf("presence check logged an attempt at %v; it must not", at)
+	}
+	if b := getBroker(t, store, "lookedatsite"); b.AttemptCount != 0 {
+		t.Errorf("attempt_count = %d, want 0", b.AttemptCount)
+	}
+}
+
+func TestStore_PresenceStats_CountsUncheckedRegistry(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "a", db.StatusPending)
+	seedOne(t, store, "b", db.StatusPending)
+	if err := store.SetPresence("a", db.PresencePresent, "found"); err != nil {
+		t.Fatalf("set presence: %v", err)
+	}
+
+	stats, err := store.PresenceStats()
+	if err != nil {
+		t.Fatalf("presence stats: %v", err)
+	}
+	if stats[db.PresencePresent] != 1 {
+		t.Errorf("present = %d, want 1", stats[db.PresencePresent])
+	}
+	if stats[db.PresenceUnknown] != 1 {
+		t.Errorf("unknown = %d, want 1 — unchecked targets must stay visible in the denominator", stats[db.PresenceUnknown])
+	}
 }

@@ -140,6 +140,26 @@ completion_method  → HOW a success was achieved:
 successful live run can set `autonomous`; the `completed` CLI command marks
 human work and cannot claim otherwise.
 
+```
+presence           → is the subject ON this site at all:
+  present            a matching result is listed - removal work is warranted
+  absent             the search ran cleanly and found nothing to remove
+  undetermined       the check could not be trusted either way
+  (empty)            never checked
+```
+
+`presence` is a third, independent axis, and it is deliberately not part of the
+scoreboard. A site the subject was never listed on is not a removal and must
+never be counted as one — but it is also not a failure, and it is the most
+common honest outcome across business directories and niche profile sites.
+Keeping it in its own column means "how many sites list me" and "how many did
+the tool get me off" stay two numbers that cannot be mistaken for each other.
+
+Until these are checked, the registry size is not an exposure figure. `status`
+now says so directly. See `PRESENCE.md` for why `absent` has to clear a much
+higher bar than the other two findings, and why a search URL only counts once
+it has passed a two-sided control experiment.
+
 ---
 
 ## Dashboard
@@ -166,6 +186,9 @@ go run ./cmd/databrokergo set-profile-url --broker spokeo --url <listing-url>
 go run ./cmd/databrokergo completed --broker spokeo --note "..."  # human-completed
 go run ./cmd/databrokergo probe --url https://site.com/opt-out   # read-only recon
 go run ./cmd/databrokergo probe --broker spokeo
+go run ./cmd/databrokergo reach [--limit N] [--apply]            # DNS + browser: is the site alive?
+go run ./cmd/databrokergo presence --verify-template --url "<tmpl>" --site X
+go run ./cmd/databrokergo presence [--broker X | --strategy N] [--dry-run]
 ```
 
 **Run `probe` before classifying any site.** It loads the page in the same
@@ -178,6 +201,8 @@ from judging a site by something else:
 | WebFetch returned 403 | the site rejects non-browser user agents | locatefamily loads fine in a browser — wrong call |
 | handler timed out | *something* went wrong | CheckPeople had a zero-size checkbox needing its label clicked — never a defense |
 | page loads in your own Chrome | a human can use it | Spokeo serves chromedp a 403 — wrong call |
+| probe reported a nav error | the *browser* failed, not the site | a local Chrome launch failure was reported as `bot_defended` — probe now refuses to conclude anything without a response |
+| a name search returned nothing | *something* returned nothing | allpeople.biz ignored the query and served its A–Z index; "no match" was a false all-clear |
 
 `probe` answers all three directly, including naming the label selector to
 click when it finds a hidden input.
