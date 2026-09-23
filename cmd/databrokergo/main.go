@@ -1018,9 +1018,44 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "history":
+		args := parseFlags(os.Args[2:])
+		if args["broker"] == "" {
+			fmt.Fprintln(os.Stderr, "usage: databrokergo history --broker <broker-id>")
+			os.Exit(1)
+		}
+		store, err := openStore()
+		if err != nil {
+			log.Fatalf("open store: %v", err)
+		}
+		defer store.Close()
+
+		hist, err := store.AttemptHistory(args["broker"])
+		if err != nil {
+			log.Fatalf("history: %v", err)
+		}
+		if len(hist) == 0 {
+			fmt.Printf("no attempts recorded for %s\n", args["broker"])
+			return
+		}
+		fmt.Printf("attempt history for %s\n\n", args["broker"])
+		for _, a := range hist {
+			kind := "LIVE"
+			if a.DryRun {
+				kind = "dry "
+			}
+			fmt.Printf("  %s  %s  %-8s %s\n",
+				a.CreatedAt.Format("2006-01-02 15:04:05"), kind, a.Status, a.Detail)
+			if a.Error != "" && a.Error != a.Detail {
+				fmt.Printf("      error: %s\n", a.Error)
+			}
+		}
+		fmt.Println("\n  LIVE means the agent contacted the real site. A live attempt that")
+		fmt.Println("  reached the submit step sent whatever SUBJECT_* held at that moment.")
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe | presence | reach | discover | auth-gmail | email | doctor")
+		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe | presence | reach | discover | auth-gmail | email | doctor | history")
 		os.Exit(1)
 	}
 }

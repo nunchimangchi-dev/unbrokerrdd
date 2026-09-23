@@ -117,6 +117,13 @@ skipped     → nothing to do (no matching record, dead site)
 manual      → requires human action (flagged by agent)
 ```
 
+The `attempts` table is the only append-only record here; broker rows are
+overwritten by each update, so by the time a question is asked the answer has
+usually been overwritten by something unrelated. `history` reads it. Failures
+record their reason in both `result` and `error` — they previously recorded
+only the literal string "failed", which made "did this live run actually submit
+anything?" unanswerable when it mattered.
+
 `status` alone is too coarse to act on — a broker can be `manual` for several
 genuinely different reasons, and only some are worth ever retrying. Two more
 columns carry that detail:
@@ -187,6 +194,7 @@ go run ./cmd/databrokergo completed --broker spokeo --note "..."  # human-comple
 go run ./cmd/databrokergo probe --url https://site.com/opt-out   # read-only recon
 go run ./cmd/databrokergo probe --broker spokeo
 go run ./cmd/databrokergo doctor                                 # is the tooling itself working?
+go run ./cmd/databrokergo history --broker <id>                  # every attempt, live vs dry, and why it failed
 go run ./cmd/databrokergo reach [--limit N] [--apply]            # DNS + browser: is the site alive?
 go run ./cmd/databrokergo presence --verify-template --url "<tmpl>" --site X
 go run ./cmd/databrokergo presence [--broker X | --strategy N] [--dry-run]

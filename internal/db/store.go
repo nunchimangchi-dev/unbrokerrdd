@@ -330,7 +330,20 @@ func (s *Store) SetInProgress(id string) error {
 // marked explicitly via SetCompletionMethod, because the tool can't observe
 // it happening. That asymmetry is the point: autonomous successes can only
 // be earned by the code actually working.
-func (s *Store) Settle(id string, status Status, dryRun bool, result, notes, confirmURL string) error {
+// Settle records the outcome of an attempt.
+//
+// detail is the human-readable account of what happened - a validator summary,
+// or the agent's error. It is stored on the attempt row, which is append-only,
+// rather than only on the broker row, which is overwritten by the next write.
+//
+// That distinction cost a real investigation. Eighteen attempts were logged
+// with result "failed" and nothing else, because the caller passed the status
+// string as the detail and the error column was never written at all. When it
+// later mattered whether one live run had actually submitted a form - it had
+// used a mistyped email address, so the answer decided whether a broker held
+// bad data - the database could not say. The broker's notes had been
+// overwritten weeks earlier by an unrelated update.
+func (s *Store) Settle(id string, status Status, dryRun bool, detail, notes, confirmURL string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -362,10 +375,16 @@ func (s *Store) Settle(id string, status Status, dryRun bool, result, notes, con
 	if dryRun {
 		dryRunInt = 1
 	}
+	// A failure's detail goes in `error` as well as `result`, so "why did this
+	// fail" is answerable with a query rather than by reading prose.
+	errText := ""
+	if status == StatusFailed && detail != "" {
+		errText = detail
+	}
 	_, err = tx.Exec(`
-		INSERT INTO attempts (broker_id, status, dry_run, result)
-		VALUES (?, ?, ?, ?)`,
-		id, string(status), dryRunInt, result,
+		INSERT INTO attempts (broker_id, status, dry_run, result, error)
+		VALUES (?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
+		id, string(status), dryRunInt, detail, errText,
 	)
 	if err != nil {
 		return fmt.Errorf("log attempt for %s: %w", id, err)
@@ -537,6 +556,82 @@ func (s *Store) RecordRequest(id, method, ref string) error {
 		return fmt.Errorf("record request for %s: %w", id, err)
 	}
 	return nil
+}
+
+// parseSQLiteTime copes with the two shapes a timestamp arrives in.
+//
+// The value is stored as text ("2026-09-18 15:16:38"), but the column is
+// DECLARED TIMESTAMP, and the driver converts on the way out - so selecting
+// the column yields a time.Time while selecting MAX(created_at) yields the raw
+// string, because the aggregate discards the declared type. LastLiveAttemptAt
+// hit the second case and had to be fixed for it; reading the column directly
+// hits the first, and parsing that with the text layout silently produces a
+// zero time - every row dated year 1, which is wrong in a way that still
+// prints and sorts.
+func parseSQLiteTime(v any) time.Time {
+	switch t := v.(type) {
+	case time.Time:
+		return t
+	case string:
+		return parseTimeText(t)
+	case []byte:
+		return parseTimeText(string(t))
+	}
+	return time.Time{}
+}
+
+func parseTimeText(s string) time.Time {
+	for _, layout := range []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05-07:00",
+		time.RFC3339Nano,
+		time.RFC3339,
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+// Attempt is one row of a broker's attempt history.
+type Attempt struct {
+	Status    Status
+	DryRun    bool
+	Detail    string
+	Error     string
+	CreatedAt time.Time
+}
+
+// AttemptHistory returns every attempt against a broker, oldest first.
+//
+// The attempts table is the only append-only record here: broker rows are
+// overwritten by each update, so by the time a question is asked the answer
+// has usually been overwritten by something unrelated. History is what makes
+// "did this run actually submit anything?" answerable after the fact.
+func (s *Store) AttemptHistory(id string) ([]Attempt, error) {
+	rows, err := s.db.Query(`
+		SELECT status, dry_run, COALESCE(result,''), COALESCE(error,''), created_at
+		FROM attempts WHERE broker_id = ? ORDER BY created_at`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Attempt
+	for rows.Next() {
+		var a Attempt
+		var dry int
+		var created any
+		if err := rows.Scan(&a.Status, &dry, &a.Detail, &a.Error, &created); err != nil {
+			return nil, err
+		}
+		a.DryRun = dry == 1
+		a.CreatedAt = parseSQLiteTime(created)
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }
 
 // PresenceStats counts brokers by presence finding across the whole registry.

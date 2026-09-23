@@ -153,7 +153,7 @@ func (r *Runner) RunBatch(ctx context.Context, bc BatchConfig) error {
 		}
 
 		// ── Settle ────────────────────────────────────────────────────
-		if err := r.store.Settle(b.ID, finalStatus, bc.DryRun, string(finalStatus), notes, result.ConfirmationURL); err != nil {
+		if err := r.store.Settle(b.ID, finalStatus, bc.DryRun, notes, notes, result.ConfirmationURL); err != nil {
 			log.Printf("[orchestrator] %s: Settle error: %v", b.ID, err)
 		}
 		r.notify(StatusUpdate{BrokerID: b.ID, Status: finalStatus, DryRun: bc.DryRun, Notes: notes})
@@ -167,7 +167,7 @@ func (r *Runner) RunBatch(ctx context.Context, bc BatchConfig) error {
 			if ok, _ := r.store.CanDispatch(cascadeID); ok {
 				_ = r.store.SetInProgress(cascadeID)
 				r.notify(StatusUpdate{BrokerID: cascadeID, Status: db.StatusInProgress, DryRun: bc.DryRun})
-				if err := r.store.Settle(cascadeID, finalStatus, bc.DryRun, string(finalStatus), cascadeNotes, result.ConfirmationURL); err != nil {
+				if err := r.store.Settle(cascadeID, finalStatus, bc.DryRun, cascadeNotes, cascadeNotes, result.ConfirmationURL); err != nil {
 					log.Printf("[orchestrator] cascade %s: Settle error: %v", cascadeID, err)
 				} else {
 					r.notify(StatusUpdate{BrokerID: cascadeID, Status: finalStatus, DryRun: bc.DryRun, Notes: cascadeNotes})

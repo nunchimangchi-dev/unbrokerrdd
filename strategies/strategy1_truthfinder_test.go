@@ -628,3 +628,109 @@ func TestStore_Seed_CorrectsAStaleURLWithoutTouchingState(t *testing.T) {
 		t.Errorf("attempt_count = %d, want 1", b.AttemptCount)
 	}
 }
+
+// ── Attempt history ───────────────────────────────────────────────────────────
+
+func TestStore_Settle_RecordsWhyItFailed(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "failsite", db.StatusPending)
+
+	detail := "agent error: context deadline exceeded waiting for input[name=\"login-email\"]"
+	if err := store.Settle("failsite", db.StatusFailed, false, detail, detail, ""); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+
+	hist, err := store.AttemptHistory("failsite")
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(hist) != 1 {
+		t.Fatalf("got %d attempts, want 1", len(hist))
+	}
+	// The bug this guards: eighteen attempts were logged with result "failed"
+	// and an empty error column, so "why did this fail" was unanswerable and a
+	// later investigation into whether a run had submitted a mistyped address
+	// could not be resolved from the database at all.
+	if hist[0].Detail != detail {
+		t.Errorf("detail = %q, want the real reason", hist[0].Detail)
+	}
+	if hist[0].Error != detail {
+		t.Errorf("error = %q, want the failure reason recorded", hist[0].Error)
+	}
+	if hist[0].Status != db.StatusFailed {
+		t.Errorf("status = %q, want failed", hist[0].Status)
+	}
+	if hist[0].DryRun {
+		t.Error("attempt was live, recorded as dry run")
+	}
+}
+
+func TestStore_Settle_SuccessLeavesErrorEmpty(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "oksite", db.StatusPending)
+
+	if err := store.Settle("oksite", db.StatusSuccess, false, "confirmation page shown", "", ""); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+	hist, err := store.AttemptHistory("oksite")
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if hist[0].Error != "" {
+		t.Errorf("error = %q on a success; the column is for failures", hist[0].Error)
+	}
+	if hist[0].Detail != "confirmation page shown" {
+		t.Errorf("detail = %q, want the validator summary", hist[0].Detail)
+	}
+}
+
+func TestStore_AttemptHistory_TimestampsAreReal(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "timesite", db.StatusPending)
+	if err := store.Settle("timesite", db.StatusFailed, true, "nope", "nope", ""); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+
+	hist, err := store.AttemptHistory("timesite")
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	// created_at is stored as text but the column is DECLARED TIMESTAMP, so
+	// the driver converts it on the way out. Parsing that with the text layout
+	// silently yields year 1 — wrong in a way that still prints and sorts.
+	if hist[0].CreatedAt.IsZero() {
+		t.Fatal("timestamp did not parse; every attempt would be dated year 1")
+	}
+	if hist[0].CreatedAt.Year() < 2000 {
+		t.Errorf("timestamp year %d — the layout does not match what the driver returns", hist[0].CreatedAt.Year())
+	}
+}
+
+func TestStore_AttemptHistory_IsAppendOnlyAndOrdered(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "multisite", db.StatusPending)
+
+	for _, d := range []string{"first failure", "second failure"} {
+		if err := store.Settle("multisite", db.StatusFailed, false, d, d, ""); err != nil {
+			t.Fatalf("settle: %v", err)
+		}
+		if err := store.Reset("multisite"); err != nil {
+			t.Fatalf("reset: %v", err)
+		}
+	}
+
+	hist, err := store.AttemptHistory("multisite")
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(hist) != 2 {
+		t.Fatalf("got %d attempts, want 2 — history must survive a reset", len(hist))
+	}
+	if hist[0].Detail != "first failure" || hist[1].Detail != "second failure" {
+		t.Errorf("history out of order or overwritten: %q then %q", hist[0].Detail, hist[1].Detail)
+	}
+}
