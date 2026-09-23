@@ -163,6 +163,7 @@ func TestParkedSignals_CatchCommonPhrasings(t *testing.T) {
 		"This domain is for sale, make an offer",
 		"Buy this domain",
 		"example.io for sale",
+		"opendatausa.com is registered at Namecheap",
 	} {
 		low := strings.ToLower(page)
 		matched := false

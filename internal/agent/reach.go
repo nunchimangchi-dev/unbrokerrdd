@@ -36,6 +36,11 @@ var parkedSignals = []string{
 	// and were both missed by the longer phrasings below: newcon.com served a
 	// page titled "Newcon.com for sale | Spaceship.com" whose body opened
 	// "Domain for sale", and the sweep reported it alive.
+	// Registrar holding pages. opendatausa.com serves "opendatausa.com is
+	// registered at Namecheap" - no site, no content, just a placeholder the
+	// registrar shows for a domain with nothing behind it.
+	"is registered at namecheap",
+	"is registered at",
 	"domain for sale",
 	".com for sale",
 	".net for sale",
