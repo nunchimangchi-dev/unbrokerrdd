@@ -108,11 +108,22 @@ Without `--apply`, it writes nothing.
 The first full sweep reported 13 dead domains. Ten of them were alive.
 
 The two checks were not independent. The browser resolves through the same
-system resolver as the DNS check, and this machine's resolver is Tailscale
-MagicDNS (100.100.100.100). When MagicDNS stopped answering, every lookup timed
-out, the browser failed identically, and "both checks failed" read as
-corroboration when it was one failure counted twice. Among the domains it
-condemned was `businesssearch.sos.ca.gov` — the California Secretary of State.
+system resolver as the DNS check, and this machine's only resolver is Tailscale
+MagicDNS (100.100.100.100).
+
+MagicDNS is not broken — it answers `google.com` in 34ms. What it does is fail
+*slowly and ambiguously* on exactly the domains this sweep asks about. For a
+domain whose authoritative nameservers no longer respond, it does not return
+NXDOMAIN; it hangs and times out (measured: 12s, then nothing). So the dead
+domains — the ones the sweep exists to find — are precisely the ones it cannot
+answer, and the browser fails the same way for the same reason. "Both checks
+failed" read as corroboration when it was one failure counted twice. Among the
+domains it condemned was `businesssearch.sos.ca.gov` — the California Secretary
+of State.
+
+That is worse than an outage would have been. An outage is obvious; a resolver
+that is fast and correct for every domain you spot-check, and silent only for
+the ones you are asking about, produces confident wrong answers.
 
 Two fixes, both in `resolve()`:
 
@@ -125,7 +136,7 @@ Two fixes, both in `resolve()`:
 
 Re-verified afterwards, the 13 became 9 genuinely dead, 1 alive (`prehired.io`,
 which resolves fine via 1.1.1.1), 1 falsely flagged as parked (`oldphonebook`),
-and the rest inconclusive pending a quiet network.
+and the rest inconclusive pending an authoritative answer.
 
 One of the survivors is worth its own note. `businesssearch.sos.ca.gov` really
 is NXDOMAIN on two of three public resolvers — but `sos.ca.gov` is healthy and

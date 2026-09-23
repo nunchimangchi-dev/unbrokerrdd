@@ -130,12 +130,16 @@ func firstLine(s string) string {
 
 // fallbackResolvers are consulted when the system resolver does not answer.
 //
-// The system resolver on this machine is Tailscale MagicDNS (100.100.100.100),
-// and when it stops answering it does so silently: every lookup times out, the
-// browser fails identically because it uses the same resolver, and a
-// reachability sweep concludes that ten live domains are dead - including
-// businesssearch.sos.ca.gov, the California Secretary of State. Asking a
-// second, independent resolver is what makes the two checks actually
+// The system resolver here is Tailscale MagicDNS (100.100.100.100). It is
+// healthy - it answers google.com in 34ms - but for a domain whose
+// authoritative nameservers no longer respond it hangs and times out rather
+// than returning NXDOMAIN. Those are exactly the domains a reachability sweep
+// asks about, and the browser fails identically because it shares the
+// resolver. One sweep built on that called ten live domains dead, including
+// businesssearch.sos.ca.gov, the California Secretary of State. A resolver
+// that is correct for everything you spot-check and silent only for what you
+// are actually asking about is worse than one that is plainly down. Asking a
+// second, independent resolver is what makes the two checks genuinely
 // independent rather than two views of one failure.
 var fallbackResolvers = []string{"1.1.1.1:53", "8.8.8.8:53"}
 
