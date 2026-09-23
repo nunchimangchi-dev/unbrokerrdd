@@ -6,11 +6,11 @@ import (
 )
 
 func TestBuildSearchURL_Placeholders(t *testing.T) {
-	got, err := BuildSearchURL("https://x.com/s?q={first+last}&full={name}&l={last}", "Ada King Lovelace")
+	got, err := BuildSearchURL("https://x.com/s?q={first+last}&full={name}&l={last}&st={state}", "Ada King Lovelace", "OH")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	for _, want := range []string{"q=Ada%2BLovelace", "full=Ada+King+Lovelace", "l=Lovelace"} {
+	for _, want := range []string{"q=Ada%2BLovelace", "full=Ada+King+Lovelace", "l=Lovelace", "st=OH"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("want %q in %q", want, got)
 		}
@@ -21,19 +21,19 @@ func TestBuildSearchURL_RejectsUnsubstituted(t *testing.T) {
 	// A leftover placeholder would be sent to the site literally, producing a
 	// page that searched for nothing - which reads as "no results", which
 	// would classify as absent. Fail loudly instead.
-	if _, err := BuildSearchURL("https://x.com/s?q={firstname}", "Ada Lovelace"); err == nil {
+	if _, err := BuildSearchURL("https://x.com/s?q={firstname}", "Ada Lovelace", "OH"); err == nil {
 		t.Fatal("expected an error for an unsubstituted placeholder")
 	}
 }
 
 func TestBuildSearchURL_RequiresTwoNameParts(t *testing.T) {
-	if _, err := BuildSearchURL("https://x.com/s?q={first+last}", "Cher"); err == nil {
+	if _, err := BuildSearchURL("https://x.com/s?q={first+last}", "Cher", "OH"); err == nil {
 		t.Fatal("expected an error for a single-word name")
 	}
 }
 
 func TestBuildSearchURL_ErrorDoesNotLeakName(t *testing.T) {
-	_, err := BuildSearchURL("https://x.com/s?q={first+last}", "Cher")
+	_, err := BuildSearchURL("https://x.com/s?q={first+last}", "Cher", "OH")
 	if err == nil {
 		t.Fatal("expected an error")
 	}

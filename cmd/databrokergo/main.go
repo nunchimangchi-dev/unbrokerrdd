@@ -489,7 +489,7 @@ func main() {
 			fmt.Println("  one that cannot be. A template only earns trust by passing both.")
 			fmt.Println()
 
-			v, vErr := agent.VerifyTemplate(context.Background(), cfg.AnthropicKey, args["site"], tmpl, args["control"], args["decoy"])
+			v, vErr := agent.VerifyTemplate(context.Background(), cfg.AnthropicKey, args["site"], tmpl, cfg.SubjectState, args["control"], args["decoy"])
 			if vErr != nil {
 				log.Fatalf("%v", vErr)
 			}
@@ -510,7 +510,7 @@ func main() {
 			if name == "" {
 				name = cfg.SubjectName
 			}
-			searchURL, buildErr := agent.BuildSearchURL(tmpl, name)
+			searchURL, buildErr := agent.BuildSearchURL(tmpl, name, cfg.SubjectState)
 			if buildErr != nil {
 				log.Fatalf("%v", buildErr)
 			}
@@ -608,7 +608,7 @@ func main() {
 				fmt.Printf("  —  %-24s no verified search template; not checked\n", b.ID)
 				continue
 			}
-			searchURL, buildErr := agent.BuildSearchURL(tmpl, cfg.SubjectName)
+			searchURL, buildErr := agent.BuildSearchURL(tmpl, cfg.SubjectName, cfg.SubjectState)
 			if buildErr != nil {
 				noTemplate++
 				fmt.Printf("  !  %-24s %v\n", b.ID, buildErr)

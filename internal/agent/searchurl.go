@@ -17,7 +17,12 @@ package agent
 //
 // Placeholders: {name} {first} {last} {first+last} - all query-escaped.
 var SearchTemplates = map[string]string{
-	// Verified live on 2026-09-23. See PRESENCE.md for the verification record.
+	// Verified 2026-09-23 by control experiment: "John Smith" returned
+	// California listings, "Zephrina Qualtrough" returned an explicit no-match.
+	// The {state} scope is required - without qn the site silently defaults to
+	// a city guessed from the caller's IP and answers "no matches in Pittsburg,
+	// CA 94565", which reads as a clean nationwide absence and is not one.
+	"merchantcircle": "https://www.merchantcircle.com/search?q={first+last}&qn={state}",
 }
 
 // SearchTemplateFor returns the verified search template for a broker ID.

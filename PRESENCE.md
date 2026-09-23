@@ -62,11 +62,27 @@ no entry is an honest "not checked".
 
 | Broker | Template | Verified | Verdict |
 |---|---|---|---|
+| merchantcircle | `…/search?q={first+last}&qn={state}` | 2026-09-23 | ✓ **trusted** — control found in CA, decoy explicit no-match |
 | allpeople | `https://allpeople.biz/?ss={first+last}` | 2026-09-23 | ✗ rejected — serves a directory index, does not search |
+| opencorporates | `/officers?q={first+last}` | 2026-09-23 | ✗ rejected — CAPTCHA before results |
+| amfibi | `/search/?q={first+last}` | 2026-09-23 | ✗ rejected — security warning and consent dialogs, no results |
+| merchantcircle (first attempt) | `…/search?q={first+last}` | 2026-09-23 | ✗ rejected — geo-scoped, see below |
 
-No template has passed verification yet. `SearchTemplates` is empty, and
-`presence` reports every broker as "no verified search template" rather than
-guessing. That is the honest state.
+### The one that nearly passed
+
+MerchantCircle's first template looked fine: the search genuinely ran, and the
+page echoed the query back. The control still came back absent, which the
+experiment correctly read as a broken template.
+
+The reason is worth keeping. Without a location parameter the site scopes the
+search to a city guessed from the caller's IP, and answered
+*"no matches for J\*\*\* S\*\*\* in Pittsburg, CA 94565"* — a true negative about a
+city nobody asked about, which would have been recorded as a clean nationwide
+absence. Supplying `{state}` from the subject's own configuration fixed it, and
+the control then found John Smiths in Los Angeles, San Mateo, Oakdale and San
+Diego while the decoy got an explicit no-match.
+
+A single search would have recorded that first result as "you are not listed".
 
 ## The subject's name never reaches the terminal or the database
 

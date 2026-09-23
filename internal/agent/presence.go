@@ -52,10 +52,18 @@ const presenceTextJS = `(function(){
   };
 })()`
 
-// BuildSearchURL substitutes a subject's name into a site's search template.
-// Supported placeholders: {name} {first} {last} {first+last} (plus-joined).
-// Values are query-escaped, so a name with spaces or punctuation is safe.
-func BuildSearchURL(template, fullName string) (string, error) {
+// BuildSearchURL substitutes a subject's details into a site's search template.
+//
+// Supported placeholders: {name} {first} {last} {first+last} (plus-joined) and
+// {state}. Values are query-escaped, so a name with spaces or punctuation is
+// safe.
+//
+// {state} exists because several directories scope a search to a location and
+// default to one guessed from the caller's IP. MerchantCircle answered a
+// nationwide-looking query with "no matches for J*** S*** in Pittsburg, CA
+// 94565" - a true negative for a city nobody asked about, which would have
+// been recorded as a clean nationwide absence.
+func BuildSearchURL(template, fullName, state string) (string, error) {
 	parts := strings.Fields(fullName)
 	if len(parts) < 2 {
 		return "", fmt.Errorf("subject name %q does not have a first and last name", redactName(fullName))
@@ -67,6 +75,7 @@ func BuildSearchURL(template, fullName string) (string, error) {
 		"{first}", url.QueryEscape(first),
 		"{last}", url.QueryEscape(last),
 		"{first+last}", url.QueryEscape(first+"+"+last),
+		"{state}", url.QueryEscape(state),
 	)
 	out := r.Replace(template)
 	if strings.Contains(out, "{") {
@@ -340,7 +349,7 @@ type TemplateVerdict struct {
 // A single search cannot distinguish "you are not listed here" from "this URL
 // does not search". Two can. If a name that is certainly present also comes
 // back absent, the template is broken, whatever it did for any other name.
-func VerifyTemplate(ctx context.Context, apiKey, siteName, template, controlName, decoyName string) (*TemplateVerdict, error) {
+func VerifyTemplate(ctx context.Context, apiKey, siteName, template, state, controlName, decoyName string) (*TemplateVerdict, error) {
 	if controlName == "" {
 		controlName = DefaultControlName
 	}
@@ -349,7 +358,7 @@ func VerifyTemplate(ctx context.Context, apiKey, siteName, template, controlName
 	}
 
 	run := func(name string) (*PresenceResult, error) {
-		u, err := BuildSearchURL(template, name)
+		u, err := BuildSearchURL(template, name, state)
 		if err != nil {
 			return nil, err
 		}
