@@ -126,9 +126,14 @@ func (r Request) Preamble() string {
 
 var ccpaTmpl = template.Must(template.New("ccpa").Parse(ccpaBody))
 
+// subjectPrefix identifies this tool's own messages in a mailbox that also
+// holds the account owner's real correspondence. It must stay stable: it is
+// what keeps a draft listing from reaching into private mail.
+const subjectPrefix = "Consumer Request to Delete Personal Information"
+
 // Subject line for the request.
 func (r Request) Subject() string {
-	return fmt.Sprintf("Consumer Request to Delete Personal Information - %s", r.SubjectName)
+	return fmt.Sprintf("%s - %s", subjectPrefix, r.SubjectName)
 }
 
 // Body renders the request text.

@@ -712,6 +712,18 @@ func main() {
 		for _, b := range all {
 			if args["broker"] != "" {
 				if b.ID == args["broker"] {
+					// --broker still respects the already-requested guard.
+					// It previously bypassed every filter, which is how a
+					// second draft got created for a broker that already had
+					// one - the duplicate this guard exists to prevent.
+					if b.RequestSentAt != nil {
+						if _, again := args["again"]; !again {
+							fmt.Printf("%s already has a request recorded (%s, %s).\n",
+								b.ID, b.RequestMethod, b.RequestSentAt.Format("2006-01-02 15:04"))
+							fmt.Println("Pass --again to create another one deliberately.")
+							return
+						}
+					}
 					targets = append(targets, b)
 				}
 				continue
@@ -837,6 +849,36 @@ func main() {
 			fmt.Println("Gmail authorised. Scope: compose/send only - this grant cannot read your mailbox.")
 			return
 		}
+		if _, check := args["whoami"]; check {
+			svc, sErr := email.Client(context.Background())
+			if sErr != nil {
+				log.Fatalf("%v", sErr)
+			}
+			from, wErr := email.WhoAmI(context.Background(), svc)
+			if wErr != nil {
+				log.Fatalf("%v", wErr)
+			}
+			fmt.Printf("this grant sends as: %s\n", from)
+
+			appCfg, cErr := config.Load()
+			if cErr != nil {
+				log.Fatalf("config: %v", cErr)
+			}
+			subject := appCfg.SubjectEmail
+			if strings.Contains(strings.ToLower(from), strings.ToLower(subject)) {
+				fmt.Println("matches SUBJECT_EMAIL — brokers will see the request come from the")
+				fmt.Println("address named in the letter, which is what they verify against.")
+			} else {
+				fmt.Printf("\nWARNING: this does NOT match SUBJECT_EMAIL.\n")
+				fmt.Println("Letters would arrive From: this account while naming a different")
+				fmt.Println("address as your identifying information. Brokers verify a request")
+				fmt.Println("against the address they hold on file, so the mismatch is a common")
+				fmt.Println("reason one is rejected as unverifiable or silently ignored.")
+				fmt.Println("Re-run auth-gmail and sign in as the account that owns SUBJECT_EMAIL.")
+			}
+			return
+		}
+
 		if err := email.AuthorizeLocal(context.Background(), cfg, 3*time.Minute); err != nil {
 			log.Fatalf("%v", err)
 		}
@@ -846,6 +888,35 @@ func main() {
 		args := parseFlags(os.Args[2:])
 		_, doSend := args["send"]
 		_, confirmed := args["i-have-reviewed-these"]
+
+		if _, want := args["list-drafts"]; want {
+			svc, sErr := email.Client(context.Background())
+			if sErr != nil {
+				log.Fatalf("%v", sErr)
+			}
+			drafts, dErr := email.ListDrafts(context.Background(), svc)
+			if dErr != nil {
+				log.Fatalf("%v", dErr)
+			}
+			if len(drafts) == 0 {
+				fmt.Println("no drafts queued")
+				return
+			}
+			fmt.Printf("%d draft(s) queued in Gmail — none sent\n\n", len(drafts))
+			seen := map[string]int{}
+			for _, d := range drafts {
+				fmt.Printf("  %-30s %s\n", d.To, d.Subject)
+				seen[strings.ToLower(d.To)]++
+			}
+			for to, n := range seen {
+				if n > 1 {
+					fmt.Printf("\n  WARNING: %d drafts addressed to %s — sending both would\n", n, to)
+					fmt.Printf("  deliver the same statutory request twice. Delete the extra in Gmail.\n")
+				}
+			}
+			return
+		}
+
 
 		cfg, err := config.Load()
 		if err != nil {

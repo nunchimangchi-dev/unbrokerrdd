@@ -150,3 +150,17 @@ func TestRequest_StateMatchingIsCaseAndSpaceInsensitive(t *testing.T) {
 		t.Errorf("preamble for %q did not match CA", r.SubjectState)
 	}
 }
+
+func TestSubjectPrefix_IsStable(t *testing.T) {
+	// The prefix is what keeps a draft listing out of the account owner's
+	// private mail. A listing that matched nothing would silently widen to
+	// everything if the filter were ever relaxed, so the coupling between the
+	// generated subject and the filter is asserted rather than assumed.
+	r := validRequest()
+	if !strings.HasPrefix(r.Subject(), subjectPrefix) {
+		t.Fatalf("Subject() = %q does not start with the filter prefix %q", r.Subject(), subjectPrefix)
+	}
+	if subjectPrefix == "" {
+		t.Fatal("empty prefix would match every draft in the mailbox")
+	}
+}
