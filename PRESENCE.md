@@ -67,6 +67,10 @@ no entry is an honest "not checked".
 | opencorporates | `/officers?q={first+last}` | 2026-09-23 | ✗ rejected — CAPTCHA before results |
 | amfibi | `/search/?q={first+last}` | 2026-09-23 | ✗ rejected — security warning and consent dialogs, no results |
 | merchantcircle (first attempt) | `…/search?q={first+last}` | 2026-09-23 | ✗ rejected — geo-scoped, see below |
+| yellowpages | `/search?search_terms=…&geo_location_terms={state}` | 2026-09-23 | ✗ rejected — bot challenge, the search never ran |
+| zaubee | — | 2026-09-23 | ✗ Cloudflare challenge on the homepage; no template attempted |
+| ausibiz | — | 2026-09-23 | ✗ Cloudflare challenge; no template attempted |
+| panjiva / wealthminder / misterwhat | — | 2026-09-23 | ✗ render no form controls to a headless browser |
 
 ### The one that nearly passed
 
