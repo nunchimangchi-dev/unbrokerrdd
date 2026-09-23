@@ -60,7 +60,7 @@ func LoadConfig() (*oauth2.Config, error) {
 // re-issue the refresh token even when the account has consented before -
 // Google only sends one on first consent, so a re-auth after deleting the
 // token file would otherwise silently produce a credential that cannot renew.
-func AuthURL(cfg *oauth2.Config) string {
+func AuthURLFor(cfg *oauth2.Config) string {
 	return cfg.AuthCodeURL("state-token",
 		oauth2.AccessTypeOffline,
 		oauth2.ApprovalForce,

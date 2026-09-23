@@ -86,7 +86,7 @@ func BuildSearchURL(template, fullName string) (string, error) {
 // subject may not even be on. Answering it is cheap, read-only, and is the one
 // determination the automation can still earn unattended.
 func CheckPresence(ctx context.Context, apiKey, siteName, searchURL, subjectName string) (*PresenceResult, error) {
-	taskCtx, cancel := chromedp.NewContext(ctx)
+	taskCtx, cancel := NewBrowserContext(ctx)
 	defer cancel()
 	taskCtx, cancelTimeout := context.WithTimeout(taskCtx, 60*time.Second)
 	defer cancelTimeout()

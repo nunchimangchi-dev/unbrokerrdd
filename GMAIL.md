@@ -92,19 +92,24 @@ force comes from citing the right law and stating the right facts, sent in your
 name. It must be identical every time, auditable afterwards, and incapable of
 inventing a claim you did not make.
 
-**The letter does not claim residency you do not have.** The first version
-opened with "I am a California-resident-equivalent consumer" for every
-recipient — there is no such thing, and `SUBJECT_STATE` here is `OH`.
-Misstating residency in a request whose whole force is being a verifiable
-statutory claim is the wrong side of the line.
+**The letter states residency accurately, per `SUBJECT_STATE`.** The first
+version opened with "I am a California-resident-equivalent consumer" for every
+recipient regardless of state. There is no such thing as
+California-resident-equivalent, and a hedge like that in a request whose whole
+force is being a verifiable statutory claim weakens it for a Californian and
+misstates it for everyone else.
+
+(For the record: this subject *is* a California resident, so the original text
+was clumsy rather than false. The reviewer who flagged it had misread the
+state as OH from a placeholder in CLAUDE.md. The fix stands on its own merits
+— the letter is now correct for any state — but the alarm was overstated.)
 
 So the opening paragraph is chosen by state:
 
 - A state with a named comprehensive privacy statute in `statutePreambles`
   (CA, VA, CO, CT, UT, TX, OR) gets that statute cited.
-- Everywhere else — Ohio included — gets a neutral opening that asks for
-  deletion under any law that does apply, and under the broker's own published
-  policy where none does.
+- Everywhere else gets a neutral opening that asks for deletion under any law
+  that does apply, and under the broker's own published policy where none does.
 
 That is weaker rhetoric and an honest claim. For a letter going out over a real
 signature, that is the correct trade. The state list is not legal advice and is

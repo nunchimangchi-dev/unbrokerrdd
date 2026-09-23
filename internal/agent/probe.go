@@ -88,7 +88,7 @@ const probeJS = `(function(){
 // renders the expected form is precisely the signal worth capturing, and
 // WaitVisible would turn that into an opaque timeout instead.
 func Probe(ctx context.Context, url string) (*ProbeResult, error) {
-	taskCtx, cancel := chromedp.NewContext(ctx)
+	taskCtx, cancel := NewBrowserContext(ctx)
 	defer cancel()
 	taskCtx, cancelTimeout := context.WithTimeout(taskCtx, 45*time.Second)
 	defer cancelTimeout()

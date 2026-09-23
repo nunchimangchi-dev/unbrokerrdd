@@ -186,6 +186,7 @@ go run ./cmd/databrokergo set-profile-url --broker spokeo --url <listing-url>
 go run ./cmd/databrokergo completed --broker spokeo --note "..."  # human-completed
 go run ./cmd/databrokergo probe --url https://site.com/opt-out   # read-only recon
 go run ./cmd/databrokergo probe --broker spokeo
+go run ./cmd/databrokergo doctor                                 # is the tooling itself working?
 go run ./cmd/databrokergo reach [--limit N] [--apply]            # DNS + browser: is the site alive?
 go run ./cmd/databrokergo presence --verify-template --url "<tmpl>" --site X
 go run ./cmd/databrokergo presence [--broker X | --strategy N] [--dry-run]
@@ -201,10 +202,19 @@ address, `email` composes a deletion request from a fixed template and drafts
 it. Drafting is the default and sending needs two flags — these go out in a
 real person's name and cannot be recalled. The Gmail grant is `gmail.compose`
 only, so this tool cannot read the mailbox and cannot confirm replies; that is
-deliberate. See `GMAIL.md`, including why the letter does not claim California
-residency for a subject who lives in Ohio.
+deliberate. See `GMAIL.md`, including how the letter's opening
+paragraph is selected from the subject's actual state.
 
-**Run `probe` before classifying any site.** It loads the page in the same
+**Run `doctor` before any sweep, and `probe` before classifying any site.**
+A sweep with a broken browser does not fail, it produces: a discovery run once
+reported "contact found 0" across 22 brokers while Chrome could not start at
+all. Every sweep now refuses to run unless the browser works, and counts
+"could not check" separately from "nothing published".
+
+Automation and daily browsing should not share a browser. `CHROME_PATH` points
+chromedp at a dedicated binary; without it, on this machine, it gets a flatpak
+wrapper whose sandbox tmp lives on a 1.6GB tmpfs.
+ It loads the page in the same
 headless browser the strategies use and reports what *that* browser receives —
 never fills, never submits. Every wrong `blocker_type` on this project came
 from judging a site by something else:
@@ -270,7 +280,7 @@ Stored in `.env` (gitignored), never committed:
 SUBJECT_NAME="Full Name"
 SUBJECT_EMAIL="you@example.com"
 SUBJECT_ADDRESS="..."
-SUBJECT_STATE="OH"
+SUBJECT_STATE="XX"   # real value lives in .env; do not read this as the subject's state
 ```
 
 ---

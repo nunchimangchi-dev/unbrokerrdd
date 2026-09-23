@@ -126,7 +126,7 @@ func rankEmail(addr string) (int, string) {
 func DiscoverPrivacyContact(ctx context.Context, domain string) (*DiscoverResult, error) {
 	res := &DiscoverResult{Domain: domain}
 
-	taskCtx, cancel := chromedp.NewContext(ctx)
+	taskCtx, cancel := NewBrowserContext(ctx)
 	defer cancel()
 	taskCtx, cancelTimeout := context.WithTimeout(taskCtx, 150*time.Second)
 	defer cancelTimeout()

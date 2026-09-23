@@ -533,6 +533,23 @@ func main() {
 		}
 
 		_, dryRun := args["dry-run"]
+		// A sweep with a broken browser does not fail, it produces: 22 rows
+		// that look like findings about brokers and are findings about this
+		// machine. Check the tool before trusting its answers.
+		if bc := agent.CheckBrowser(context.Background()); !bc.OK {
+			fmt.Fprintln(os.Stderr, bc.Explain())
+			fmt.Fprintln(os.Stderr, "refusing to run: results would say nothing about these sites.")
+			os.Exit(1)
+		}
+
+		// One browser for the whole sweep: a tab per target instead of a browser
+		// per target. See NewBrowserContext for what the per-target version cost.
+		browserCtx, closeBrowser, bErr := agent.NewSweepBrowser(context.Background())
+		if bErr != nil {
+			log.Fatalf("%v", bErr)
+		}
+		defer closeBrowser()
+
 		fmt.Printf("presence check — %d target(s), read-only, searching as %s\n\n",
 			len(targets), cfg.Redacted().SubjectName)
 
@@ -551,7 +568,7 @@ func main() {
 				continue
 			}
 
-			res, checkErr := agent.CheckPresence(context.Background(), cfg.AnthropicKey, b.Name, searchURL, cfg.SubjectName)
+			res, checkErr := agent.CheckPresence(browserCtx, cfg.AnthropicKey, b.Name, searchURL, cfg.SubjectName)
 			if checkErr != nil {
 				fmt.Printf("  !  %-24s %v\n", b.ID, checkErr)
 				continue
@@ -622,12 +639,29 @@ func main() {
 			return
 		}
 
+		// A sweep with a broken browser does not fail, it produces: 22 rows
+		// that look like findings about brokers and are findings about this
+		// machine. Check the tool before trusting its answers.
+		if bc := agent.CheckBrowser(context.Background()); !bc.OK {
+			fmt.Fprintln(os.Stderr, bc.Explain())
+			fmt.Fprintln(os.Stderr, "refusing to run: results would say nothing about these sites.")
+			os.Exit(1)
+		}
+
+		// One browser for the whole sweep: a tab per target instead of a browser
+		// per target. See NewBrowserContext for what the per-target version cost.
+		browserCtx, closeBrowser, bErr := agent.NewSweepBrowser(context.Background())
+		if bErr != nil {
+			log.Fatalf("%v", bErr)
+		}
+		defer closeBrowser()
+
 		fmt.Printf("reachability sweep — %d domain(s), read-only\n", len(targets))
 		fmt.Printf("two independent checks per domain: DNS, then a real browser load\n\n")
 
 		var dead, alive, odd int
 		for _, b := range targets {
-			r := agent.CheckReachability(context.Background(), b.URL)
+			r := agent.CheckReachability(browserCtx, b.URL)
 			isDead, reason := r.Verdict()
 			switch {
 			case isDead:
@@ -696,14 +730,36 @@ func main() {
 			return
 		}
 
+		// A sweep with a broken browser does not fail, it produces: 22 rows
+		// that look like findings about brokers and are findings about this
+		// machine. Check the tool before trusting its answers.
+		if bc := agent.CheckBrowser(context.Background()); !bc.OK {
+			fmt.Fprintln(os.Stderr, bc.Explain())
+			fmt.Fprintln(os.Stderr, "refusing to run: results would say nothing about these sites.")
+			os.Exit(1)
+		}
+
+		// One browser for the whole sweep: a tab per target instead of a browser
+		// per target. See NewBrowserContext for what the per-target version cost.
+		browserCtx, closeBrowser, bErr := agent.NewSweepBrowser(context.Background())
+		if bErr != nil {
+			log.Fatalf("%v", bErr)
+		}
+		defer closeBrowser()
+
 		fmt.Printf("privacy-contact discovery — %d site(s), read-only, nothing is sent\n\n", len(targets))
 
-		var found, none int
+		var found, none, errored int
 		for _, b := range targets {
-			res, dErr := agent.DiscoverPrivacyContact(context.Background(), b.URL)
+			res, dErr := agent.DiscoverPrivacyContact(browserCtx, b.URL)
 			if dErr != nil {
-				none++
-				fmt.Printf("  !  %-26s %v\n", b.ID, dErr)
+				// Counted separately from "no address found". A page that
+				// never loaded tells you nothing about whether the site
+				// publishes a contact, and folding the two together is how a
+				// sweep reports "contact found 0" about 22 brokers when the
+				// browser was broken the whole time.
+				errored++
+				fmt.Printf("  !  %-26s could not load: %v\n", b.ID, dErr)
 				continue
 			}
 			best := res.Best()
@@ -749,9 +805,18 @@ func main() {
 			}
 		}
 
-		fmt.Printf("\n  contact found %d · none found %d\n", found, none)
+		fmt.Printf("\n  contact found %d · no address published %d · could not check %d\n", found, none, errored)
+		if errored > 0 {
+			fmt.Printf("  %d site(s) were never actually examined — that is a result about this\n", errored)
+			fmt.Printf("  machine, not about those brokers, and nothing was recorded for them.\n")
+		}
 		if !apply && found > 0 {
 			fmt.Println("  (nothing written — re-run with --apply to record the addresses)")
+		}
+
+		if n, b := agent.SweepProfileDirs(); n > 0 {
+			fmt.Printf("\n  note: %d leftover browser profile(s) using %.0f MB. If this grows,\n", n, float64(b)/(1<<20))
+			fmt.Printf("  the sweep is leaking profiles again — see NewBrowserContext.\n")
 		}
 		fmt.Println("\n  a recorded address is a target, not a sent request — nothing is")
 		fmt.Println("  emailed until the send path exists and you approve each batch.")
@@ -763,16 +828,19 @@ func main() {
 		}
 		args := parseFlags(os.Args[2:])
 		if code := args["code"]; code != "" {
+			// Manual fallback. Only works if the client was issued a redirect
+			// URI that actually displays a code, which modern Desktop clients
+			// are not.
 			if err := email.ExchangeAndSave(context.Background(), cfg, code); err != nil {
 				log.Fatalf("%v", err)
 			}
 			fmt.Println("Gmail authorised. Scope: compose/send only - this grant cannot read your mailbox.")
 			return
 		}
-		fmt.Println("Open this URL, approve, then copy the code Google shows you:")
-		fmt.Printf("\n%s\n\n", email.AuthURL(cfg))
-		fmt.Println("Then run:")
-		fmt.Println("  ./databrokergo auth-gmail --code <the-code>")
+		if err := email.AuthorizeLocal(context.Background(), cfg, 3*time.Minute); err != nil {
+			log.Fatalf("%v", err)
+		}
+		fmt.Println("Gmail authorised. Scope: compose/send only - this grant cannot read your mailbox.")
 
 	case "email":
 		args := parseFlags(os.Args[2:])
@@ -910,9 +978,49 @@ func main() {
 		fmt.Println("\n  A request leaving the outbox is not a removal. Status is unchanged;")
 		fmt.Println("  only a broker acting on it is a removal, and that is confirmed by hand.")
 
+	case "doctor":
+		fmt.Println("checking the tools this project depends on…")
+		fmt.Println()
+		bc := agent.CheckBrowser(context.Background())
+		if bc.OK {
+			fmt.Printf("  ✓ headless browser   %s\n", bc.ExecPath)
+		} else {
+			fmt.Printf("  ✗ headless browser\n")
+			for _, line := range strings.Split(strings.TrimRight(bc.Explain(), "\n"), "\n") {
+				fmt.Printf("    %s\n", line)
+			}
+		}
+
+		if _, err := os.Stat("gmail_credentials.json"); err == nil {
+			fmt.Println("  ✓ gmail credentials  gmail_credentials.json")
+		} else {
+			fmt.Println("  — gmail credentials  not present (see GMAIL.md)")
+		}
+		if _, err := os.Stat("gmail_token.json"); err == nil {
+			fmt.Println("  ✓ gmail authorised   gmail_token.json")
+		} else {
+			fmt.Println("  — gmail authorised   not yet; run `auth-gmail`")
+		}
+
+		if cfg, err := config.Load(); err != nil {
+			fmt.Printf("  ✗ config             %v\n", err)
+		} else {
+			r := cfg.Redacted()
+			fmt.Printf("  ✓ subject            %s / %s / %s\n", r.SubjectName, r.SubjectEmail, cfg.SubjectState)
+			if cfg.AnthropicKey == "" {
+				fmt.Println("  — anthropic key      not set; presence checks cannot classify")
+			} else {
+				fmt.Println("  ✓ anthropic key      set")
+			}
+		}
+
+		if !bc.OK {
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe | presence | reach | discover | auth-gmail | email")
+		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe | presence | reach | discover | auth-gmail | email | doctor")
 		os.Exit(1)
 	}
 }

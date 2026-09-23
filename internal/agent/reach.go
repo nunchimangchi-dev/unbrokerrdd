@@ -57,7 +57,7 @@ func CheckReachability(ctx context.Context, domain string) *Reachability {
 
 	r.Resolves, r.DNSDefinitive, r.DNSErr = resolve(ctx, domain)
 
-	taskCtx, cancel := chromedp.NewContext(ctx)
+	taskCtx, cancel := NewBrowserContext(ctx)
 	defer cancel()
 	taskCtx, cancelTimeout := context.WithTimeout(taskCtx, 35*time.Second)
 	defer cancelTimeout()
