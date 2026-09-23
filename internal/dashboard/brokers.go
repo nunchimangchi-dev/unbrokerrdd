@@ -128,7 +128,10 @@ func initBrokers() []Broker {
 		{ID: "amfibi", Name: "Amfibi", Strategy: 4, URL: "amfibi.com"},
 		{ID: "azcorpcorp", Name: "AZ Corp Commission", Strategy: 4, URL: "azcc.gov"},
 		{ID: "ausibiz", Name: "AusiBiz", Strategy: 4, URL: "ausibiz.com"},
-		{ID: "cabizdb", Name: "CA Business Database", Strategy: 4, URL: "businesssearch.sos.ca.gov"},
+		// businesssearch.sos.ca.gov is NXDOMAIN on two of three public resolvers; the
+		// service moved to bizfileonline.sos.ca.gov. The target is alive - the URL
+		// was stale, which is a registry-data problem, not a dead_site.
+		{ID: "cabizdb", Name: "CA Business Database", Strategy: 4, URL: "bizfileonline.sos.ca.gov"},
 		{ID: "canadacompany", Name: "Canada Company Registry", Strategy: 4, URL: "corporationscanada.ic.gc.ca"},
 		{ID: "georgiacompany", Name: "Georgia Company Registry", Strategy: 4, URL: "ecorp.sos.ga.gov"},
 		{ID: "merchantcircle", Name: "MerchantCircle", Strategy: 4, URL: "merchantcircle.com"},

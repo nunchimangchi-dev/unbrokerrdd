@@ -231,8 +231,18 @@ func (s *Store) addColumnIfMissing(table, column, ddl string) error {
 	return nil
 }
 
-// Seed inserts all brokers as 'pending' using INSERT OR IGNORE.
-// Existing rows (any status) are never touched — this is the idempotency foundation.
+// Seed inserts all brokers as 'pending' using INSERT OR IGNORE, and refreshes
+// the declarative fields on rows that already exist.
+//
+// Live state - status, attempts, blockers, presence, notes - is never touched;
+// that is the idempotency foundation and the reason a re-seed is always safe.
+// But name, strategy and url are not state, they are the registry's
+// declaration, and INSERT OR IGNORE meant a correction to them could never
+// reach an existing row. That was not theoretical: businesssearch.sos.ca.gov
+// went NXDOMAIN and the service moved to bizfileonline.sos.ca.gov, and after
+// fixing the registry every command still checked the dead URL, because the
+// database kept the old one forever. A registry that cannot correct itself is
+// not a source of truth.
 func (s *Store) Seed(brokers []Broker) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -241,8 +251,14 @@ func (s *Store) Seed(brokers []Broker) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(`
-		INSERT OR IGNORE INTO brokers (id, name, strategy, url, status)
+		INSERT INTO brokers (id, name, strategy, url, status)
 		VALUES (?, ?, ?, ?, 'pending')
+		ON CONFLICT(id) DO UPDATE SET
+			name       = excluded.name,
+			strategy   = excluded.strategy,
+			url        = excluded.url,
+			updated_at = CASE WHEN brokers.url <> excluded.url
+			                  THEN CURRENT_TIMESTAMP ELSE brokers.updated_at END
 	`)
 	if err != nil {
 		return err

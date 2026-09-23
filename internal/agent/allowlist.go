@@ -97,7 +97,7 @@ var AllowedDomains = map[string]bool{
 	"amfibi.com":                   true,
 	"azcc.gov":                     true,
 	"ausibiz.com":                  true,
-	"businesssearch.sos.ca.gov":    true,
+	"bizfileonline.sos.ca.gov":     true, // was businesssearch.sos.ca.gov, now NXDOMAIN
 	"corporationscanada.ic.gc.ca":  true,
 	"ecorp.sos.ga.gov":             true,
 	"merchantcircle.com":           true,

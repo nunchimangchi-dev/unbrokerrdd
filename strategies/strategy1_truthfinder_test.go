@@ -587,3 +587,44 @@ func TestStore_PresenceStats_CountsUncheckedRegistry(t *testing.T) {
 		t.Errorf("unknown = %d, want 1 — unchecked targets must stay visible in the denominator", stats[db.PresenceUnknown])
 	}
 }
+
+func TestStore_Seed_CorrectsAStaleURLWithoutTouchingState(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+
+	if err := store.Seed([]db.Broker{{ID: "movedsite", Name: "Moved", Strategy: 4, URL: "old.example.gov"}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := store.SetBlocker("movedsite", db.BlockerBotDefended, ""); err != nil {
+		t.Fatalf("set blocker: %v", err)
+	}
+	if err := store.Settle("movedsite", db.StatusManual, false, "routed", "hand note", ""); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+
+	// The registry corrects the URL; re-seeding must carry that through.
+	if err := store.Seed([]db.Broker{{ID: "movedsite", Name: "Moved Service", Strategy: 4, URL: "new.example.gov"}}); err != nil {
+		t.Fatalf("re-seed: %v", err)
+	}
+
+	b := getBroker(t, store, "movedsite")
+	if b.URL != "new.example.gov" {
+		t.Errorf("url = %q, want the corrected one — a registry that cannot correct itself is not a source of truth", b.URL)
+	}
+	if b.Name != "Moved Service" {
+		t.Errorf("name = %q, want the corrected one", b.Name)
+	}
+	// Everything that is live state must survive untouched.
+	if b.Status != db.StatusManual {
+		t.Errorf("status = %q, want manual — re-seeding must never reset live state", b.Status)
+	}
+	if b.BlockerType != db.BlockerBotDefended {
+		t.Errorf("blocker_type = %q, want bot_defended", b.BlockerType)
+	}
+	if b.Notes != "hand note" {
+		t.Errorf("notes = %q, want the note preserved", b.Notes)
+	}
+	if b.AttemptCount != 1 {
+		t.Errorf("attempt_count = %d, want 1", b.AttemptCount)
+	}
+}
