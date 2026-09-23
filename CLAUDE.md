@@ -62,7 +62,7 @@ for live numbers. Only the build state is tracked in this table.
 | 2 | Hidden Opt-Out Pages | Per-site handler: navigate to opt-out URL, fill form, validate | **Partially built** — handlers for `checkpeople`, `advancedbackgroundchecks`, `spokeo`; every other broker.ID routes to manual |
 | 3 | Privacy Page Discovery | Scrape contact email → send CCPA email | **Built** — `discover` + `email`, needs a Google OAuth client (GMAIL.md) |
 | 4 | Business Directories | Search name → skip if not found | Planned — not started |
-| 5 | Phone Directories (WHOIS) | WHOIS lookup → send CCPA email | **Built, and mostly defeated by GDPR** — see below |
+| 5 | Phone Directories (WHOIS) | WHOIS lookup → send CCPA email | **OBSOLETE** — the premise, not the code, is what failed. See below |
 | 6 | Profile Brokers | Account-based deletion or flag manual | Planned — not started |
 
 Strategy 1's agent covers its whole bucket (one PeopleConnect suppression submission cascades to the affiliates — see the 2026-09-17 correction in `HANDOFF.md`, it used to hit the wrong TruthFinder control entirely).
@@ -72,8 +72,17 @@ Strategy 2 is a **router, not a single mechanism** — each broker.ID needs its 
 - **Don't infer a blocker from a failure mode.** CheckPeople timed out for days and was classified `bot_defended` by pattern-matching to Strategy 1's genuine bot-detection. The real cause was a zero-size hidden checkbox that needed its wrapping `<label>` clicked. It was never a defense at all.
 - **Don't classify a site without loading it.** Five sites were marked `needs_profile_url` from documentation alone; when actually checked, four turned out to be bot-defended and only Spokeo was genuinely clean.
 
-**Strategy 5's premise is largely obsolete.** It assumed WHOIS exposes a
-registrant address. Since GDPR that is rarely true: of 10 live domains swept,
+**Strategy 5 is marked obsolete rather than deleted**, and the reason lives in
+code (`internal/dashboard/strategies.go`), printed by `databrokergo status`.
+Deleting it would leave twelve phone directories with no handler and no
+explanation, and the next person would reasonably assume nobody got to them,
+rebuild it, and hit the same wall. A test requires any obsolete strategy to
+carry both a rationale and dated evidence, so the label can never become an
+empty one.
+
+It assumed WHOIS exposes a
+registrant address. Since GDPR that is rarely true. Of 10 live domains swept on
+2026-09-23:
 0 publish a mailbox at their own domain, 3 expose a privacy-proxy forwarder
 that relays to the registrant, 5 publish a web contact form instead of an
 address, and 2 expose nothing but their registrar's abuse desk. The three

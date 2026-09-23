@@ -185,6 +185,10 @@ func main() {
 		if err != nil {
 			log.Fatalf("presence stats: %v", err)
 		}
+		all, err := store.GetAll()
+		if err != nil {
+			log.Fatalf("read brokers: %v", err)
+		}
 
 		fmt.Printf("DATABROKER.GO v%s — broker status\n\n", version)
 
@@ -225,6 +229,49 @@ func main() {
 					fmt.Printf("    %-18s %d\n", b, n)
 				}
 			}
+		}
+
+		// Strategies, with the ones that cannot work said plainly. A target
+		// sitting untouched under an obsolete strategy is not backlog, and
+		// counting it as backlog overstates what is left to build.
+		byStrategy := map[int]int{}
+		for _, b := range all {
+			if b.Status == db.StatusPending {
+				byStrategy[b.Strategy]++
+			}
+		}
+		fmt.Printf("\n  STRATEGIES:\n")
+		obsoletePending := 0
+		for _, st := range dashboard.Strategies() {
+			mark := " "
+			if st.State == dashboard.StrategyObsolete {
+				mark = "✗"
+				obsoletePending += byStrategy[st.N]
+			}
+			fmt.Printf("    %s %d %-26s %-9s %d pending\n", mark, st.N, st.Name, st.State, byStrategy[st.N])
+		}
+		for _, st := range dashboard.Strategies() {
+			if st.State != dashboard.StrategyObsolete {
+				continue
+			}
+			fmt.Printf("\n    Strategy %d is obsolete, not unfinished:\n", st.N)
+			for _, line := range wrapText(st.Note, 68) {
+				fmt.Printf("      %s\n", line)
+			}
+			if st.Evidence != "" {
+				fmt.Printf("      evidence: ")
+				for i, line := range wrapText(st.Evidence, 58) {
+					if i == 0 {
+						fmt.Printf("%s\n", line)
+					} else {
+						fmt.Printf("                %s\n", line)
+					}
+				}
+			}
+		}
+		if obsoletePending > 0 {
+			fmt.Printf("\n    %d pending target(s) sit under an obsolete strategy. They are not\n", obsoletePending)
+			fmt.Printf("    waiting on code that someone forgot to write.\n")
 		}
 
 		// Exposure, not progress. Every claim this project makes is measured
@@ -1261,6 +1308,11 @@ func main() {
 					formOnly++
 					fmt.Printf("  □  %-26s registrant reachable by web form, not email\n", b.ID)
 					fmt.Printf("     %s\n", res.ContactFormURL)
+					if apply {
+						if err := store.RecordContactForm(b.ID, res.ContactFormURL); err != nil {
+							fmt.Printf("     ! could not record: %v\n", err)
+						}
+					}
 					continue
 				}
 				proxied++
@@ -1367,4 +1419,24 @@ func trimDashes(s string) string {
 		s = s[1:]
 	}
 	return s
+}
+
+// wrapText breaks a long explanation into terminal-width lines. Rationale that
+// scrolls off the right edge is rationale nobody reads.
+func wrapText(s string, width int) []string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return nil
+	}
+	var lines []string
+	cur := words[0]
+	for _, w := range words[1:] {
+		if len(cur)+1+len(w) > width {
+			lines = append(lines, cur)
+			cur = w
+			continue
+		}
+		cur += " " + w
+	}
+	return append(lines, cur)
 }

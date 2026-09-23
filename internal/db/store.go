@@ -693,6 +693,25 @@ func (s *Store) AttemptHistory(id string) ([]Attempt, error) {
 	return out, rows.Err()
 }
 
+// RecordContactForm stores a web contact form found where an address was
+// expected.
+//
+// A form is a real channel, just not one an email strategy can use. Recording
+// only addresses and discarding these would leave the database asserting "no
+// contact" for sites that publish a perfectly usable one - and the next sweep
+// would go and find it again.
+func (s *Store) RecordContactForm(id, url string) error {
+	_, err := s.db.Exec(`
+		UPDATE brokers SET
+			notes      = 'registrant contact form (no address published): ' || ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`, url, id)
+	if err != nil {
+		return fmt.Errorf("record contact form for %s: %w", id, err)
+	}
+	return nil
+}
+
 // PresenceStats counts brokers by presence finding across the whole registry.
 func (s *Store) PresenceStats() (map[Presence]int, error) {
 	rows, err := s.db.Query(`SELECT presence, COUNT(*) FROM brokers GROUP BY presence`)
