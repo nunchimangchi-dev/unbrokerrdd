@@ -304,6 +304,29 @@ Frontend (no npm, vanilla JS):
 
 ---
 
+## What the database holds, and what changed
+
+Broker rows used to contain no personal data at all. That property is what made
+syncing the database to the production host easy to reason about, and it no
+longer holds: presence findings record facts about the subject - that he holds
+no H1B petition, no loans, no business in a particular jurisdiction, that an
+entity is registered in his name in one state. Individually mundane, collectively
+a small profile.
+
+Two things keep the blast radius bounded, and both should be checked before
+anyone widens them:
+
+- **Notes never leave the box over HTTP.** `loadFromStore` converts a
+  `db.Broker` into the dashboard's own struct, which carries only id, name,
+  strategy, url and status. No endpoint serialises notes, and the WebSocket
+  payload does not either. Reading them requires shell access to the host.
+- **Classifier output is scrubbed at the boundary.** `ScrubSubject` strips the
+  subject's name where model output enters the program, so an evidence string
+  quoting "no results for <name>" cannot reach storage.
+
+If a future change serialises the full broker row to any endpoint, that decision
+is now a privacy decision, not a plumbing one.
+
 ## Personal Data Config
 
 Stored in `.env` (gitignored), never committed:
