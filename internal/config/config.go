@@ -91,8 +91,20 @@ func (c *Config) Redacted() Config {
 	if r.AnthropicKey != "" {
 		r.AnthropicKey = "sk-ant-***"
 	}
-	if len(r.SubjectEmail) > 3 {
-		r.SubjectEmail = r.SubjectEmail[:3] + "***@***"
+	if i := strings.IndexByte(r.SubjectEmail, '@'); i > 0 {
+		// Mask the local part but keep the domain visible. The sensitive half
+		// is who you are, not which provider you use - and the domain is
+		// exactly where a config error hides. A typo'd SUBJECT_EMAIL pointed
+		// at "egmail.com" (a live typosquat with real MX records, accepting
+		// mail on a catch-all) and this redaction printed it as "wsh***@***",
+		// hiding the only part that was wrong.
+		keep := i
+		if keep > 3 {
+			keep = 3
+		}
+		r.SubjectEmail = r.SubjectEmail[:keep] + "***" + r.SubjectEmail[i:]
+	} else if len(r.SubjectEmail) > 3 {
+		r.SubjectEmail = r.SubjectEmail[:3] + "***"
 	}
 	if r.SubjectName != "" {
 		parts := strings.Fields(r.SubjectName)
