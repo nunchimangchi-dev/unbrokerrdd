@@ -941,11 +941,16 @@ func main() {
 				}
 				continue
 			}
-			// Only brokers with a discovered address and no request already
-			// on record. Re-sending a statutory request because a tool forgot
-			// it had sent one is not persistence, it is noise.
+			// A request that has actually been sent is never repeated:
+			// re-sending a statutory request because a tool forgot is not
+			// persistence, it is noise.
 			if b.PrivacyEmail == "" || b.RequestSentAt != nil ||
 				b.Status == db.StatusSuccess || b.BlockerType == db.BlockerDeadSite {
+				continue
+			}
+			// In draft mode, skip anything already drafted. In send mode,
+			// those are exactly the targets - the drafts waiting to go.
+			if !doSend && b.DraftedAt != nil {
 				continue
 			}
 			targets = append(targets, b)
@@ -954,8 +959,13 @@ func main() {
 			targets = targets[:n]
 		}
 		if len(targets) == 0 {
-			fmt.Println("nothing to send: no brokers with a discovered address and no request already recorded")
-			fmt.Println("run `discover --apply` first")
+			if doSend {
+				fmt.Println("nothing to send: no drafts are waiting and no broker has an")
+				fmt.Println("unrequested address. Run without --send to draft first.")
+			} else {
+				fmt.Println("nothing to draft: every broker with a discovered address already")
+				fmt.Println("has a draft or a sent request. Use --list-drafts to see what is queued.")
+			}
 			return
 		}
 
@@ -1004,6 +1014,36 @@ func main() {
 			log.Fatalf("%v", err)
 		}
 
+		// draftByRecipient maps a queued draft to the address it is addressed
+		// to. Sending resolves through this rather than through the stored
+		// draft id, because a person reviewing drafts in Gmail may well delete
+		// one and keep another - as happened with the duplicate here - leaving
+		// the stored id pointing at something that no longer exists. What is
+		// actually in the mailbox is the truth; the database is a record of
+		// what this tool did.
+		draftByRecipient := map[string]string{}
+
+		if doSend {
+			// Refuse to send while two drafts share a recipient. Delivering
+			// the same statutory request twice, from a real person, to a
+			// company that keeps records, is not a recoverable mistake.
+			queued, qErr := email.ListDrafts(context.Background(), svc)
+			if qErr != nil {
+				log.Fatalf("could not check queued drafts: %v", qErr)
+			}
+			for _, d := range queued {
+				draftByRecipient[strings.ToLower(strings.TrimSpace(d.To))] = d.ID
+			}
+			if dupes := email.DuplicateRecipients(queued); len(dupes) > 0 {
+				fmt.Fprintln(os.Stderr, "refusing to send: duplicate drafts are queued.")
+				for to, n := range dupes {
+					fmt.Fprintf(os.Stderr, "  %d drafts addressed to %s\n", n, to)
+				}
+				fmt.Fprintln(os.Stderr, "\nDelete the extras in Gmail, then run this again.")
+				os.Exit(1)
+			}
+		}
+
 		mode := "drafting"
 		if doSend {
 			mode = "SENDING"
@@ -1022,12 +1062,28 @@ func main() {
 			var ref string
 			var sendErr error
 			method := "drafted"
-			if doSend {
+
+			// Prefer the draft actually sitting in the mailbox for this
+			// recipient over the id recorded when it was created.
+			liveDraft := draftByRecipient[strings.ToLower(strings.TrimSpace(b.PrivacyEmail))]
+			if liveDraft == "" {
+				liveDraft = b.DraftRef
+			}
+
+			switch {
+			case doSend && liveDraft != "":
+				// Send the draft the human actually read, not a fresh render
+				// of the template - otherwise any edit made in Gmail is
+				// silently discarded and the review meant nothing.
+				method = "sent"
+				ref, sendErr = email.SendDraft(context.Background(), svc, liveDraft)
+			case doSend:
 				method = "sent"
 				ref, sendErr = email.Send(context.Background(), svc, req)
-			} else {
+			default:
 				ref, sendErr = email.CreateDraft(context.Background(), svc, req)
 			}
+
 			if sendErr != nil {
 				failed++
 				fmt.Printf("  !  %-26s %v\n", b.ID, sendErr)
@@ -1035,8 +1091,15 @@ func main() {
 			}
 			ok++
 			fmt.Printf("  ✓  %-26s %-8s → %s (ref %s)\n", b.ID, method, b.PrivacyEmail, ref)
-			if err := store.RecordRequest(b.ID, method, ref); err != nil {
-				fmt.Printf("     ! could not record: %v\n", err)
+
+			var recErr error
+			if method == "sent" {
+				recErr = store.RecordSent(b.ID, ref)
+			} else {
+				recErr = store.RecordDraft(b.ID, ref)
+			}
+			if recErr != nil {
+				fmt.Printf("     ! could not record: %v\n", recErr)
 			}
 		}
 

@@ -734,3 +734,44 @@ func TestStore_AttemptHistory_IsAppendOnlyAndOrdered(t *testing.T) {
 		t.Errorf("history out of order or overwritten: %q then %q", hist[0].Detail, hist[1].Detail)
 	}
 }
+
+func TestStore_DraftingIsNotSending(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "draftsite", db.StatusPending)
+
+	if err := store.RecordDraft("draftsite", "r123"); err != nil {
+		t.Fatalf("record draft: %v", err)
+	}
+	b := getBroker(t, store, "draftsite")
+	if b.DraftedAt == nil {
+		t.Error("drafted_at not stamped")
+	}
+	if b.DraftRef != "r123" {
+		t.Errorf("draft_ref = %q, want r123", b.DraftRef)
+	}
+	// The bug this guards: drafting used to stamp request_sent_at, which
+	// claimed a statutory request had been sent while it sat unreviewed in a
+	// Drafts folder - and made --send skip the very drafts it had created.
+	if b.RequestSentAt != nil {
+		t.Error("drafting must not record the request as sent")
+	}
+
+	if err := store.RecordSent("draftsite", "m456"); err != nil {
+		t.Fatalf("record sent: %v", err)
+	}
+	b = getBroker(t, store, "draftsite")
+	if b.RequestSentAt == nil {
+		t.Error("request_sent_at not stamped after sending")
+	}
+	if b.RequestMethod != "sent" {
+		t.Errorf("request_method = %q, want sent", b.RequestMethod)
+	}
+	if b.DraftedAt == nil {
+		t.Error("sending must not erase the record that it was drafted first")
+	}
+	// Sending is still not a removal.
+	if b.Status == db.StatusSuccess {
+		t.Error("sending a request must not mark the broker successful")
+	}
+}

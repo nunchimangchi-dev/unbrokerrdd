@@ -164,3 +164,28 @@ func TestSubjectPrefix_IsStable(t *testing.T) {
 		t.Fatal("empty prefix would match every draft in the mailbox")
 	}
 }
+
+func TestDuplicateRecipients(t *testing.T) {
+	drafts := []DraftSummary{
+		{ID: "a", To: "privacy@one.example"},
+		{ID: "b", To: "Privacy@One.Example "}, // same address, different case and spacing
+		{ID: "c", To: "privacy@two.example"},
+	}
+	dupes := DuplicateRecipients(drafts)
+	if len(dupes) != 1 {
+		t.Fatalf("got %d duplicate recipients, want 1: %v", len(dupes), dupes)
+	}
+	if dupes["privacy@one.example"] != 2 {
+		t.Errorf("case and whitespace must not hide a duplicate: %v", dupes)
+	}
+}
+
+func TestDuplicateRecipients_NoneWhenDistinct(t *testing.T) {
+	drafts := []DraftSummary{
+		{ID: "a", To: "privacy@one.example"},
+		{ID: "b", To: "privacy@two.example"},
+	}
+	if d := DuplicateRecipients(drafts); len(d) != 0 {
+		t.Errorf("distinct recipients reported as duplicates: %v", d)
+	}
+}
