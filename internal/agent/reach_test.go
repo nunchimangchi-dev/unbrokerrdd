@@ -77,3 +77,77 @@ func TestReachability_ParkedDetection(t *testing.T) {
 		t.Fatalf("parked domain should be dead, reason %q", reason)
 	}
 }
+
+func TestClassifyWhoisEmail_Tiers(t *testing.T) {
+	cases := []struct {
+		name     string
+		addr     string
+		context  string
+		domain   string
+		wantTier Tier
+		usable   bool
+	}{
+		{
+			name: "mailbox at the site's own domain",
+			addr: "privacy@example.com", context: "Registrant Email: privacy@example.com",
+			domain: "example.com", wantTier: TierDirect, usable: true,
+		},
+		{
+			// The distinction that turned "ten dead ends" into "three weak
+			// options": a proxy forwarder relays to the registrant, a
+			// registrar abuse desk does not.
+			name: "privacy proxy forwards to the registrant",
+			addr: "abc123.protect@withheldforprivacy.com", context: "Registrant Email: abc123.protect@withheldforprivacy.com",
+			domain: "example.com", wantTier: TierForwarded, usable: true,
+		},
+		{
+			name: "registrar abuse desk is not the operator",
+			addr: "abuse@namecheap.com", context: "Registrar Abuse Contact Email: abuse@namecheap.com",
+			domain: "example.com", wantTier: TierRegistrar, usable: false,
+		},
+		{
+			name: "unrelated third party",
+			addr: "someone@unrelated.example", context: "Tech Email: someone@unrelated.example",
+			domain: "example.com", wantTier: TierUnknown, usable: false,
+		},
+		{
+			name: "www prefix still counts as the same site",
+			addr: "privacy@example.com", context: "Registrant Email: privacy@example.com",
+			domain: "www.example.com", wantTier: TierDirect, usable: true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := classifyWhoisEmail(c.addr, c.context, c.domain)
+			if got.Tier != c.wantTier {
+				t.Errorf("tier = %q, want %q (%s)", got.Tier, c.wantTier, got.Why)
+			}
+			if got.Usable != c.usable {
+				t.Errorf("usable = %v, want %v (%s)", got.Usable, c.usable, got.Why)
+			}
+			if got.Why == "" {
+				t.Error("every classification must say why")
+			}
+		})
+	}
+}
+
+func TestWhoisResult_BestPrefersDirectOverForwarded(t *testing.T) {
+	r := &WhoisResult{Contacts: []WhoisContact{
+		{Email: "p@proxy.example", Tier: TierForwarded, Usable: true},
+		{Email: "privacy@site.example", Tier: TierDirect, Usable: true},
+	}}
+	best := r.Best()
+	if best == nil || best.Tier != TierDirect {
+		t.Fatalf("Best() should prefer a direct mailbox, got %+v", best)
+	}
+}
+
+func TestWhoisResult_BestIgnoresRegistrar(t *testing.T) {
+	r := &WhoisResult{Contacts: []WhoisContact{
+		{Email: "abuse@registrar.example", Tier: TierRegistrar, Usable: false},
+	}}
+	if best := r.Best(); best != nil {
+		t.Errorf("Best() returned a registrar desk: %+v", best)
+	}
+}

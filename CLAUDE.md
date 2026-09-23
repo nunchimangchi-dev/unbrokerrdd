@@ -62,7 +62,7 @@ for live numbers. Only the build state is tracked in this table.
 | 2 | Hidden Opt-Out Pages | Per-site handler: navigate to opt-out URL, fill form, validate | **Partially built** — handlers for `checkpeople`, `advancedbackgroundchecks`, `spokeo`; every other broker.ID routes to manual |
 | 3 | Privacy Page Discovery | Scrape contact email → send CCPA email | **Built** — `discover` + `email`, needs a Google OAuth client (GMAIL.md) |
 | 4 | Business Directories | Search name → skip if not found | Planned — not started |
-| 5 | Phone Directories (WHOIS) | WHOIS lookup → send CCPA email | **Partial** — the email half is built and shared with Strategy 3; WHOIS lookup is not |
+| 5 | Phone Directories (WHOIS) | WHOIS lookup → send CCPA email | **Built, and mostly defeated by GDPR** — see below |
 | 6 | Profile Brokers | Account-based deletion or flag manual | Planned — not started |
 
 Strategy 1's agent covers its whole bucket (one PeopleConnect suppression submission cascades to the affiliates — see the 2026-09-17 correction in `HANDOFF.md`, it used to hit the wrong TruthFinder control entirely).
@@ -71,6 +71,19 @@ Strategy 2 is a **router, not a single mechanism** — each broker.ID needs its 
 
 - **Don't infer a blocker from a failure mode.** CheckPeople timed out for days and was classified `bot_defended` by pattern-matching to Strategy 1's genuine bot-detection. The real cause was a zero-size hidden checkbox that needed its wrapping `<label>` clicked. It was never a defense at all.
 - **Don't classify a site without loading it.** Five sites were marked `needs_profile_url` from documentation alone; when actually checked, four turned out to be bot-defended and only Spokeo was genuinely clean.
+
+**Strategy 5's premise is largely obsolete.** It assumed WHOIS exposes a
+registrant address. Since GDPR that is rarely true: of 10 live domains swept,
+0 publish a mailbox at their own domain, 3 expose a privacy-proxy forwarder
+that relays to the registrant, 5 publish a web contact form instead of an
+address, and 2 expose nothing but their registrar's abuse desk. The three
+forwarders are recorded with a `whois-proxy:` source so they are never mistaken
+for a real privacy contact. The five contact forms are a genuine channel the
+email strategy cannot use - they need a person or a browser handler.
+
+A registrar abuse desk is never recorded. It is a company with no relationship
+to the subject's data, and a deletion request sent there is mail to an
+uninvolved third party.
 
 See the 2026-09-17, 09-18, and 09-22 entries in `HANDOFF.md` for what's been tried and what really blocks the rest.
 
@@ -199,6 +212,7 @@ go run ./cmd/databrokergo reach [--limit N] [--apply]            # DNS + browser
 go run ./cmd/databrokergo presence --verify-template --url "<tmpl>" --site X
 go run ./cmd/databrokergo presence [--broker X | --strategy N] [--dry-run]
 go run ./cmd/databrokergo discover [--strategy 3] [--apply]      # find CCPA contact addresses
+go run ./cmd/databrokergo whois [--strategy 5] [--apply]         # registrant contact via WHOIS
 go run ./cmd/databrokergo auth-gmail                             # one-time OAuth, see GMAIL.md
 go run ./cmd/databrokergo email --preview                        # render, send nothing
 go run ./cmd/databrokergo email [--limit N]                      # create Gmail drafts

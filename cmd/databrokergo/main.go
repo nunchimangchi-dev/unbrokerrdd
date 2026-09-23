@@ -1187,9 +1187,126 @@ func main() {
 		fmt.Println("\n  LIVE means the agent contacted the real site. A live attempt that")
 		fmt.Println("  reached the submit step sent whatever SUBJECT_* held at that moment.")
 
+	case "whois":
+		args := parseFlags(os.Args[2:])
+		_, apply := args["apply"]
+
+		store, err := openStore()
+		if err != nil {
+			log.Fatalf("open store: %v", err)
+		}
+		defer store.Close()
+
+		all, err := store.GetAll()
+		if err != nil {
+			log.Fatalf("read brokers: %v", err)
+		}
+
+		strategy := 5
+		if args["strategy"] != "" {
+			if n, cErr := strconv.Atoi(args["strategy"]); cErr == nil {
+				strategy = n
+			}
+		}
+
+		var targets []db.Broker
+		for _, b := range all {
+			if args["broker"] != "" {
+				if b.ID == args["broker"] {
+					targets = append(targets, b)
+				}
+				continue
+			}
+			if b.Strategy != strategy || b.PrivacyEmail != "" ||
+				b.BlockerType == db.BlockerDeadSite || b.Status == db.StatusSuccess {
+				continue
+			}
+			targets = append(targets, b)
+		}
+		if n, cErr := strconv.Atoi(args["limit"]); cErr == nil && n < len(targets) {
+			targets = targets[:n]
+		}
+		if len(targets) == 0 {
+			fmt.Println("nothing to look up")
+			return
+		}
+
+		fmt.Printf("WHOIS sweep — %d domain(s), read-only\n\n", len(targets))
+
+		var usable, proxied, failed, formOnly int
+		for i, b := range targets {
+			if i > 0 {
+				// WHOIS servers rate-limit aggressively and answer a burst
+				// with truncated records rather than an error, which would
+				// read as "no contact published".
+				time.Sleep(2 * time.Second)
+			}
+			res, wErr := agent.Whois(context.Background(), b.URL)
+			if wErr != nil {
+				failed++
+				fmt.Printf("  !  %-26s lookup failed: %v\n", b.ID, wErr)
+				continue
+			}
+			best := res.Best()
+			if best == nil {
+				reason := "no contact at the site's own domain"
+				if res.Redacted {
+					reason = "registrant contact redacted for privacy"
+				}
+				// Counted after the form check, not before: a domain with a
+				// contact form is not a domain with no contact, and adding it
+				// to both buckets made the totals exceed the number of
+				// domains swept.
+				if res.ContactFormURL != "" {
+					formOnly++
+					fmt.Printf("  □  %-26s registrant reachable by web form, not email\n", b.ID)
+					fmt.Printf("     %s\n", res.ContactFormURL)
+					continue
+				}
+				proxied++
+				fmt.Printf("  —  %-26s %s\n", b.ID, reason)
+				if len(res.Contacts) > 0 {
+					fmt.Printf("     saw %d address(es), none usable: %s\n",
+						len(res.Contacts), res.Contacts[0].Why)
+				}
+				continue
+			}
+			usable++
+			mark := "✓"
+			if best.Tier == agent.TierForwarded {
+				mark = "~"
+			}
+			fmt.Printf("  %s  %-26s %-46s\n", mark, b.ID, best.Email)
+			fmt.Printf("     [%s/%s] %s\n", best.Tier, best.Role, best.Why)
+			if apply {
+				src := "whois:" + res.Server
+				if best.Tier == agent.TierForwarded {
+					src = "whois-proxy:" + res.Server
+				}
+				if err := store.SetPrivacyContact(b.ID, best.Email, src); err != nil {
+					fmt.Printf("     ! could not record: %v\n", err)
+				}
+			}
+		}
+
+		fmt.Printf("\n  emailable %d · web form only %d · no contact %d · lookup failed %d\n",
+			usable, formOnly, proxied, failed)
+		if !apply && usable > 0 {
+			fmt.Println("  (nothing written — re-run with --apply to record the addresses)")
+		}
+		fmt.Println("\n  ✓ = a mailbox at the site's own domain.")
+		fmt.Println("  ~ = a privacy-proxy forwarder. Since GDPR most registrant contacts are")
+		fmt.Println("      proxied; the hashed address relays to whoever registered the domain,")
+		fmt.Println("      so it reaches the operator indirectly and may well be filtered.")
+		fmt.Println("  □ = the registrant publishes a web form instead of an address. A real")
+		fmt.Println("      channel, but not one the email strategy can use - it needs a person")
+		fmt.Println("      or a browser handler.")
+		fmt.Println("  Registrar abuse desks are never recorded — that is a company with no")
+		fmt.Println("  relationship to your data.")
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe | presence | reach | discover | auth-gmail | email | doctor | history")
+		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe | presence | reach | discover | auth-gmail | email | doctor | history | whois")
 		os.Exit(1)
 	}
 }
