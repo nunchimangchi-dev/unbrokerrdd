@@ -96,6 +96,9 @@ type Broker struct {
 	PresenceCheckedAt *time.Time
 	PrivacyEmail       string // discovered CCPA/deletion-request address for strategies 3 and 5
 	PrivacyEmailSource string // the page it was found on, so it can be checked
+	RequestSentAt      *time.Time
+	RequestMethod      string // "drafted" or "sent" - drafting is not sending, and the two must never merge
+	RequestRef         string // Gmail draft or message id, so a claim can be checked against the account
 }
 
 // Store wraps the SQLite connection and exposes broker operations.
@@ -144,6 +147,9 @@ func (s *Store) migrate() error {
 			presence_checked_at TIMESTAMP,
 			privacy_email       TEXT,
 			privacy_email_source TEXT,
+			request_sent_at     TIMESTAMP,
+			request_method      TEXT,
+			request_ref         TEXT,
 			created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
@@ -194,7 +200,16 @@ func (s *Store) migrate() error {
 	if err := s.addColumnIfMissing("brokers", "privacy_email", "TEXT"); err != nil {
 		return err
 	}
-	return s.addColumnIfMissing("brokers", "privacy_email_source", "TEXT")
+	if err := s.addColumnIfMissing("brokers", "privacy_email_source", "TEXT"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("brokers", "request_sent_at", "TIMESTAMP"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("brokers", "request_method", "TEXT"); err != nil {
+		return err
+	}
+	return s.addColumnIfMissing("brokers", "request_ref", "TEXT")
 }
 
 // addColumnIfMissing upgrades an existing database created before a column
@@ -366,7 +381,8 @@ func (s *Store) GetAll() ([]Broker, error) {
 		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,''),
 		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,''), completion_method,
 		       presence, presence_checked_at,
-		       COALESCE(privacy_email,''), COALESCE(privacy_email_source,'')
+		       COALESCE(privacy_email,''), COALESCE(privacy_email_source,''),
+		       request_sent_at, COALESCE(request_method,''), COALESCE(request_ref,'')
 		FROM brokers ORDER BY strategy, name
 	`)
 	if err != nil {
@@ -383,7 +399,8 @@ func (s *Store) GetPendingByStrategy(strategy int) ([]Broker, error) {
 		       last_attempt_at, COALESCE(confirmation_url,''), COALESCE(notes,''),
 		       blocker_type, COALESCE(covered_by,''), COALESCE(profile_url,''), completion_method,
 		       presence, presence_checked_at,
-		       COALESCE(privacy_email,''), COALESCE(privacy_email_source,'')
+		       COALESCE(privacy_email,''), COALESCE(privacy_email_source,''),
+		       request_sent_at, COALESCE(request_method,''), COALESCE(request_ref,'')
 		FROM brokers
 		WHERE strategy = ? AND status = 'pending'
 		ORDER BY name`,
@@ -496,6 +513,28 @@ func (s *Store) SetPrivacyContact(id, email, source string) error {
 		WHERE id = ?`, email, source, id)
 	if err != nil {
 		return fmt.Errorf("set privacy contact for %s: %w", id, err)
+	}
+	return nil
+}
+
+// RecordRequest notes that a deletion request was drafted or sent.
+//
+// method is stored verbatim rather than collapsed to a boolean, because
+// "drafted" and "sent" are different claims and the difference is the whole
+// point of the drafting default. A drafted request has not reached the broker
+// and must never read as though it had. Nothing here sets a status: a request
+// leaving the outbox is not a removal, only the broker's action is, and that
+// arrives later or not at all.
+func (s *Store) RecordRequest(id, method, ref string) error {
+	_, err := s.db.Exec(`
+		UPDATE brokers SET
+			request_sent_at = CURRENT_TIMESTAMP,
+			request_method  = ?,
+			request_ref     = ?,
+			updated_at      = CURRENT_TIMESTAMP
+		WHERE id = ?`, method, ref, id)
+	if err != nil {
+		return fmt.Errorf("record request for %s: %w", id, err)
 	}
 	return nil
 }
@@ -844,7 +883,7 @@ func scanBrokers(rows *sql.Rows) ([]Broker, error) {
 	var out []Broker
 	for rows.Next() {
 		var b Broker
-		var lat, pat *time.Time
+		var lat, pat, rat *time.Time
 		var blockerType, coveredBy, profileURL, completionMethod, presence string
 		if err := rows.Scan(
 			&b.ID, &b.Name, &b.Strategy, &b.URL, &b.Status,
@@ -852,11 +891,13 @@ func scanBrokers(rows *sql.Rows) ([]Broker, error) {
 			&blockerType, &coveredBy, &profileURL, &completionMethod,
 			&presence, &pat,
 			&b.PrivacyEmail, &b.PrivacyEmailSource,
+			&rat, &b.RequestMethod, &b.RequestRef,
 		); err != nil {
 			return nil, err
 		}
 		b.LastAttemptAt = lat
 		b.PresenceCheckedAt = pat
+		b.RequestSentAt = rat
 		b.Presence = Presence(presence)
 		b.BlockerType = BlockerType(blockerType)
 		b.CoveredBy = coveredBy

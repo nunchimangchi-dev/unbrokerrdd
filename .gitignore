@@ -30,3 +30,7 @@ databrokergo.db
 /databrokergo
 /unbrokerrdd
 dist/
+
+# Gmail OAuth: client secret and bearer refresh token. Never commit.
+gmail_credentials.json
+gmail_token.json

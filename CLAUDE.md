@@ -60,9 +60,9 @@ for live numbers. Only the build state is tracked in this table.
 |---|------|-----------|-------------|
 | 1 | TruthFinder Affiliates | 1 suppression request at suppression.peopleconnect.us (PeopleConnect's shared portal), chromedp + Claude Haiku vision validation | **Built** — corrected 2026-09-17, see HANDOFF.md |
 | 2 | Hidden Opt-Out Pages | Per-site handler: navigate to opt-out URL, fill form, validate | **Partially built** — handlers for `checkpeople`, `advancedbackgroundchecks`, `spokeo`; every other broker.ID routes to manual |
-| 3 | Privacy Page Discovery | Scrape contact email → send CCPA email | Planned — needs Gmail OAuth2, not started |
+| 3 | Privacy Page Discovery | Scrape contact email → send CCPA email | **Built** — `discover` + `email`, needs a Google OAuth client (GMAIL.md) |
 | 4 | Business Directories | Search name → skip if not found | Planned — not started |
-| 5 | Phone Directories (WHOIS) | WHOIS lookup → send CCPA email | Planned — needs Gmail OAuth2, not started |
+| 5 | Phone Directories (WHOIS) | WHOIS lookup → send CCPA email | **Partial** — the email half is built and shared with Strategy 3; WHOIS lookup is not |
 | 6 | Profile Brokers | Account-based deletion or flag manual | Planned — not started |
 
 Strategy 1's agent covers its whole bucket (one PeopleConnect suppression submission cascades to the affiliates — see the 2026-09-17 correction in `HANDOFF.md`, it used to hit the wrong TruthFinder control entirely).
@@ -189,7 +189,20 @@ go run ./cmd/databrokergo probe --broker spokeo
 go run ./cmd/databrokergo reach [--limit N] [--apply]            # DNS + browser: is the site alive?
 go run ./cmd/databrokergo presence --verify-template --url "<tmpl>" --site X
 go run ./cmd/databrokergo presence [--broker X | --strategy N] [--dry-run]
+go run ./cmd/databrokergo discover [--strategy 3] [--apply]      # find CCPA contact addresses
+go run ./cmd/databrokergo auth-gmail                             # one-time OAuth, see GMAIL.md
+go run ./cmd/databrokergo email --preview                        # render, send nothing
+go run ./cmd/databrokergo email [--limit N]                      # create Gmail drafts
+go run ./cmd/databrokergo email --send --i-have-reviewed-these   # actually send
 ```
+
+Strategies 3 and 5 are the email path: `discover` finds the published contact
+address, `email` composes a deletion request from a fixed template and drafts
+it. Drafting is the default and sending needs two flags — these go out in a
+real person's name and cannot be recalled. The Gmail grant is `gmail.compose`
+only, so this tool cannot read the mailbox and cannot confirm replies; that is
+deliberate. See `GMAIL.md`, including why the letter does not claim California
+residency for a subject who lives in Ohio.
 
 **Run `probe` before classifying any site.** It loads the page in the same
 headless browser the strategies use and reports what *that* browser receives —

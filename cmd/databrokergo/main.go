@@ -12,6 +12,7 @@ import (
 	"github.com/nunchimangchi-dev/unbrokerrdd/internal/config"
 	"github.com/nunchimangchi-dev/unbrokerrdd/internal/dashboard"
 	"github.com/nunchimangchi-dev/unbrokerrdd/internal/db"
+	"github.com/nunchimangchi-dev/unbrokerrdd/internal/email"
 	"github.com/nunchimangchi-dev/unbrokerrdd/internal/orchestrator"
 	"github.com/nunchimangchi-dev/unbrokerrdd/internal/agent"
 	"github.com/nunchimangchi-dev/unbrokerrdd/strategies"
@@ -755,9 +756,163 @@ func main() {
 		fmt.Println("\n  a recorded address is a target, not a sent request — nothing is")
 		fmt.Println("  emailed until the send path exists and you approve each batch.")
 
+	case "auth-gmail":
+		cfg, err := email.LoadConfig()
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		args := parseFlags(os.Args[2:])
+		if code := args["code"]; code != "" {
+			if err := email.ExchangeAndSave(context.Background(), cfg, code); err != nil {
+				log.Fatalf("%v", err)
+			}
+			fmt.Println("Gmail authorised. Scope: compose/send only - this grant cannot read your mailbox.")
+			return
+		}
+		fmt.Println("Open this URL, approve, then copy the code Google shows you:")
+		fmt.Printf("\n%s\n\n", email.AuthURL(cfg))
+		fmt.Println("Then run:")
+		fmt.Println("  ./databrokergo auth-gmail --code <the-code>")
+
+	case "email":
+		args := parseFlags(os.Args[2:])
+		_, doSend := args["send"]
+		_, confirmed := args["i-have-reviewed-these"]
+
+		cfg, err := config.Load()
+		if err != nil {
+			log.Fatalf("config: %v", err)
+		}
+		store, err := openStore()
+		if err != nil {
+			log.Fatalf("open store: %v", err)
+		}
+		defer store.Close()
+
+		all, err := store.GetAll()
+		if err != nil {
+			log.Fatalf("read brokers: %v", err)
+		}
+
+		var targets []db.Broker
+		for _, b := range all {
+			if args["broker"] != "" {
+				if b.ID == args["broker"] {
+					targets = append(targets, b)
+				}
+				continue
+			}
+			// Only brokers with a discovered address and no request already
+			// on record. Re-sending a statutory request because a tool forgot
+			// it had sent one is not persistence, it is noise.
+			if b.PrivacyEmail == "" || b.RequestSentAt != nil ||
+				b.Status == db.StatusSuccess || b.BlockerType == db.BlockerDeadSite {
+				continue
+			}
+			targets = append(targets, b)
+		}
+		if n, convErr := strconv.Atoi(args["limit"]); convErr == nil && n < len(targets) {
+			targets = targets[:n]
+		}
+		if len(targets) == 0 {
+			fmt.Println("nothing to send: no brokers with a discovered address and no request already recorded")
+			fmt.Println("run `discover --apply` first")
+			return
+		}
+
+		// Sending is irreversible and goes out in the account owner's name.
+		// It requires BOTH --send and an explicit acknowledgement that the
+		// drafts were read, and the acknowledgement flag is deliberately
+		// tedious to type. Drafting is the default.
+		if doSend && !confirmed {
+			fmt.Println("--send requires --i-have-reviewed-these as well.")
+			fmt.Println()
+			fmt.Println("These messages go out in your name and cannot be recalled. Run without")
+			fmt.Println("--send first: that creates Gmail drafts you can read, edit, and send")
+			fmt.Println("yourself. Use --send only for messages you have actually read.")
+			os.Exit(1)
+		}
+
+		// Preview renders exactly what would go out, without touching Gmail
+		// and without needing any credential. Nobody should have to authorise
+		// an API to find out what a tool intends to say in their name.
+		if _, preview := args["preview"]; preview {
+			b := targets[0]
+			req := email.Request{
+				BrokerName:   b.Name,
+				BrokerEmail:  b.PrivacyEmail,
+				SubjectName:  cfg.SubjectName,
+				SubjectMail:  cfg.SubjectEmail,
+				SubjectState: cfg.SubjectState,
+			}
+			if err := req.Validate(); err != nil {
+				log.Fatalf("%v", err)
+			}
+			raw, rErr := req.RFC822()
+			if rErr != nil {
+				log.Fatalf("%v", rErr)
+			}
+			fmt.Printf("preview for %s — nothing sent, nothing drafted, Gmail not contacted\n\n", b.ID)
+			fmt.Println(strings.ReplaceAll(raw, "\r\n", "\n"))
+			if len(targets) > 1 {
+				fmt.Printf("\n(%d other brokers would receive the same text with their own name and address)\n", len(targets)-1)
+			}
+			return
+		}
+
+		svc, err := email.Client(context.Background())
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+
+		mode := "drafting"
+		if doSend {
+			mode = "SENDING"
+		}
+		fmt.Printf("%s %d CCPA deletion request(s) as %s\n\n", mode, len(targets), cfg.Redacted().SubjectEmail)
+
+		var ok, failed int
+		for _, b := range targets {
+			req := email.Request{
+				BrokerName:   b.Name,
+				BrokerEmail:  b.PrivacyEmail,
+				SubjectName:  cfg.SubjectName,
+				SubjectMail:  cfg.SubjectEmail,
+				SubjectState: cfg.SubjectState,
+			}
+			var ref string
+			var sendErr error
+			method := "drafted"
+			if doSend {
+				method = "sent"
+				ref, sendErr = email.Send(context.Background(), svc, req)
+			} else {
+				ref, sendErr = email.CreateDraft(context.Background(), svc, req)
+			}
+			if sendErr != nil {
+				failed++
+				fmt.Printf("  !  %-26s %v\n", b.ID, sendErr)
+				continue
+			}
+			ok++
+			fmt.Printf("  ✓  %-26s %-8s → %s (ref %s)\n", b.ID, method, b.PrivacyEmail, ref)
+			if err := store.RecordRequest(b.ID, method, ref); err != nil {
+				fmt.Printf("     ! could not record: %v\n", err)
+			}
+		}
+
+		fmt.Printf("\n  %s %d · failed %d\n", mode, ok, failed)
+		if !doSend {
+			fmt.Println("\n  These are drafts in your Gmail. Nothing has been sent, and no broker")
+			fmt.Println("  has been contacted. Read them, then send from Gmail or re-run with")
+			fmt.Println("  --send --i-have-reviewed-these.")
+		}
+		fmt.Println("\n  A request leaving the outbox is not a removal. Status is unchanged;")
+		fmt.Println("  only a broker acting on it is a removal, and that is confirmed by hand.")
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe | presence | reach | discover")
+		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe | presence | reach | discover | auth-gmail | email")
 		os.Exit(1)
 	}
 }
