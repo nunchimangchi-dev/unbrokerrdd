@@ -34,3 +34,6 @@ dist/
 # Gmail OAuth: client secret and bearer refresh token. Never commit.
 gmail_credentials.json
 gmail_token.json
+
+# Private incident notes and working material — never published.
+/private/

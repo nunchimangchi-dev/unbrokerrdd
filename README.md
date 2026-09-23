@@ -6,6 +6,27 @@ An AI-driven data broker opt-out orchestrator. It seeds a queue of real US data 
 
 Built as a genuine attempt at solving a real privacy problem with an AI agent doing the meaningful decision-making — not a script with an LLM bolted on.
 
+## About this commit history
+
+The history here is intentionally unredacted. It records the bugs as well as
+the features, including ones that were mine and embarrassing: a browser-profile
+leak that filled a tmpfs until no sandboxed application on the machine could
+start, a classifier that confidently reported "you are not listed on this site"
+about a page that had never run the search, a reachability sweep that declared
+the California Secretary of State a dead domain, and a draft-listing feature
+that read far more of a mailbox than it had any business touching.
+
+Each of those was found, explained, fixed, and covered by a test that would
+catch it again — and the commit message says which. That record is kept rather
+than squashed because a curated history would make this project look more
+finished and be worth less. The whole point of the tool is refusing to report a
+removal it did not earn; a repository that quietly hid its own failures while
+doing so would be making exactly the mistake it exists to prevent.
+
+If you are evaluating this as work: read `databrokergo status` output and the
+commit messages together. The first says what is true right now, the second
+says what it cost to find out.
+
 ## Before you run this
 
 **This costs real money, on your own Anthropic account.** Every non-dry-run
