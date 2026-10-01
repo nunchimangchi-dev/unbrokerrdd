@@ -284,11 +284,37 @@ func main() {
 		fmt.Printf("    %-18s %d\n", "confirmed absent", presence[db.PresenceAbsent])
 		fmt.Printf("    %-18s %d\n", "undetermined", presence[db.PresenceUndetermined])
 		fmt.Printf("    %-18s %d\n", "never checked", presence[db.PresenceUnknown])
+		// Judged irrelevant by category, not searched. Shown on its own line so
+		// it is neither hidden in "never checked" nor mistaken for "absent".
+		if n := presence[db.PresenceNotApplicable]; n > 0 {
+			fmt.Printf("    %-18s %d  (category cannot apply; not searched, not a finding)\n", "not applicable", n)
+		}
 		if presence[db.PresenceUnknown] > 0 {
 			fmt.Printf("    → %d of %d targets have never been checked for a record at all;\n",
 				presence[db.PresenceUnknown], total)
 			fmt.Printf("      any coverage percentage over %d is not yet a real number.\n", total)
 		}
+
+	// ── not-applicable ─────────────────────────────────────────────────
+	// A human judgment that a site's category cannot apply to the subject.
+	// The reason is mandatory and stored; see Store.SetNotApplicable.
+	case "not-applicable":
+		args := parseFlags(os.Args[2:])
+		id := args["broker"]
+		reason := args["reason"]
+		if id == "" || strings.TrimSpace(reason) == "" {
+			fmt.Fprintln(os.Stderr, "usage: databrokergo not-applicable --broker <broker-id> --reason \"why this site's category cannot apply\"")
+			os.Exit(1)
+		}
+		store, err := openStore()
+		if err != nil {
+			log.Fatalf("open store: %v", err)
+		}
+		defer store.Close()
+		if err := store.SetNotApplicable(id, reason); err != nil {
+			log.Fatalf("%v", err)
+		}
+		fmt.Printf("%s → not_applicable, skipped (not a check, not a removal)\n", id)
 
 	// ── reset ──────────────────────────────────────────────────────────
 	case "reset":
@@ -1358,7 +1384,7 @@ func main() {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | set-profile-url | completed | probe | presence | reach | discover | auth-gmail | email | doctor | history | whois")
+		fmt.Fprintln(os.Stderr, "commands: serve | run | status | reset | blocker | not-applicable | set-profile-url | completed | probe | presence | reach | discover | auth-gmail | email | doctor | history | whois")
 		os.Exit(1)
 	}
 }

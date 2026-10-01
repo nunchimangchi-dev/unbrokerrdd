@@ -2,6 +2,7 @@ package strategies_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -564,6 +565,128 @@ func TestStore_SetPresence_DoesNotLogAnAttempt(t *testing.T) {
 	}
 	if b := getBroker(t, store, "lookedatsite"); b.AttemptCount != 0 {
 		t.Errorf("attempt_count = %d, want 0", b.AttemptCount)
+	}
+}
+
+func TestStore_SetNotApplicable_RequiresAReason(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "irrelevantsite", db.StatusPending)
+
+	for _, reason := range []string{"", "   "} {
+		if err := store.SetNotApplicable("irrelevantsite", reason); err == nil {
+			t.Errorf("reason %q accepted; an unexplained label is the ambiguity this state exists to remove", reason)
+		}
+	}
+	if b := getBroker(t, store, "irrelevantsite"); b.Presence != db.PresenceUnknown || b.Status != db.StatusPending {
+		t.Errorf("rejected call changed the row: presence=%q status=%q", b.Presence, b.Status)
+	}
+}
+
+func TestStore_SetNotApplicable_SkipsButIsNeitherACheckNorARemoval(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "credsite", db.StatusPending)
+
+	if err := store.SetNotApplicable("credsite", "lists holders of a credential the subject lacks"); err != nil {
+		t.Fatalf("set not applicable: %v", err)
+	}
+
+	b := getBroker(t, store, "credsite")
+	if b.Presence != db.PresenceNotApplicable {
+		t.Errorf("presence = %q, want not_applicable", b.Presence)
+	}
+	if b.Status != db.StatusSkipped {
+		t.Errorf("status = %q, want skipped", b.Status)
+	}
+	if !strings.Contains(b.Notes, "credential") {
+		t.Errorf("reason not recorded in notes: %q", b.Notes)
+	}
+	if b.CompletionMethod != db.CompletionNone {
+		t.Errorf("completion_method = %q, want empty — irrelevance is not a removal", b.CompletionMethod)
+	}
+	if b.PresenceCheckedAt != nil {
+		t.Error("presence_checked_at was stamped, but nothing was searched")
+	}
+}
+
+func TestStore_SetNotApplicable_RefusesRealWorkAndConfirmedListings(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+
+	seedOne(t, store, "donesite", db.StatusPending)
+	if err := store.Settle("donesite", db.StatusSuccess, false, "ok", "", ""); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+	if err := store.SetNotApplicable("donesite", "category"); err == nil {
+		t.Error("accepted on a success row; that would relabel completed work")
+	}
+	if b := getBroker(t, store, "donesite"); b.Status != db.StatusSuccess || b.Presence != db.PresenceUnknown {
+		t.Errorf("success row was altered: status=%q presence=%q", b.Status, b.Presence)
+	}
+
+	seedOne(t, store, "listedsite", db.StatusPending)
+	if err := store.SetPresence("listedsite", db.PresencePresent, "found"); err != nil {
+		t.Fatalf("set presence: %v", err)
+	}
+	if err := store.SetNotApplicable("listedsite", "category"); err == nil {
+		t.Error("accepted on a site where the subject was found listed; the finding must win")
+	}
+}
+
+func TestStore_SetNotApplicable_NeverReplacesAnAbsentFinding(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "registrysite", db.StatusPending)
+	if err := store.SetPresence("registrysite", db.PresenceAbsent, "search ran cleanly, no record"); err != nil {
+		t.Fatalf("set presence: %v", err)
+	}
+
+	if err := store.SetNotApplicable("registrysite", "category cannot apply"); err == nil {
+		t.Fatal("replaced an absent finding with a category judgment; the search result is the stronger record")
+	}
+	b := getBroker(t, store, "registrysite")
+	if b.Presence != db.PresenceAbsent || !strings.Contains(b.Notes, "no record") {
+		t.Errorf("absent finding or its evidence was altered: presence=%q notes=%q", b.Presence, b.Notes)
+	}
+}
+
+func TestStore_SetNotApplicable_KeepsEarlierEvidenceOnAnUndeterminedRow(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "blanksite", db.StatusPending)
+	if err := store.SetPresence("blanksite", db.PresenceUndetermined, "page rendered nothing, needs a human look"); err != nil {
+		t.Fatalf("set presence: %v", err)
+	}
+
+	if err := store.SetNotApplicable("blanksite", "category cannot apply"); err != nil {
+		t.Fatalf("set not applicable: %v", err)
+	}
+
+	b := getBroker(t, store, "blanksite")
+	if b.Presence != db.PresenceNotApplicable {
+		t.Errorf("presence = %q, want not_applicable", b.Presence)
+	}
+	if !strings.Contains(b.Notes, "category cannot apply") || !strings.Contains(b.Notes, "needs a human look") {
+		t.Errorf("reason or earlier evidence missing from notes: %q", b.Notes)
+	}
+}
+
+func TestStore_Reset_KeepsANotApplicableRowExplained(t *testing.T) {
+	store, cleanup := tempStore(t)
+	defer cleanup()
+	seedOne(t, store, "credsite", db.StatusPending)
+	if err := store.SetNotApplicable("credsite", "lists holders of a credential the subject lacks"); err != nil {
+		t.Fatalf("set not applicable: %v", err)
+	}
+
+	if err := store.Reset("credsite"); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+
+	b := getBroker(t, store, "credsite")
+	if b.Status != db.StatusSkipped || !strings.Contains(b.Notes, "credential") {
+		t.Errorf("reset unexplained a not_applicable row: status=%q notes=%q", b.Status, b.Notes)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver, no CGo required
@@ -75,6 +76,15 @@ const (
 	PresencePresent      Presence = "present"      // subject appears in search results
 	PresenceAbsent       Presence = "absent"       // search ran cleanly, no record of the subject
 	PresenceUndetermined Presence = "undetermined" // check ran but could not be trusted either way
+
+	// PresenceNotApplicable is a judgment about the site's category, not a
+	// finding from a search: the site lists only people the subject cannot be
+	// (e.g. holders of a credential the subject does not have). It is not
+	// "absent" - absent means a search ran cleanly and found nothing, and has
+	// to clear a much higher bar than a human reading a category. It is kept
+	// apart so "looked and found nothing" and "never applied to me" cannot be
+	// mistaken for each other. SetNotApplicable requires a reason.
+	PresenceNotApplicable Presence = "not_applicable"
 )
 
 // Broker is one row in the brokers table.
@@ -564,6 +574,65 @@ func (s *Store) SetPresence(id string, p Presence, evidence string) error {
 	return tx.Commit()
 }
 
+// SetNotApplicable records that a broker's category cannot apply to the
+// subject, moving a pending row to 'skipped' the way an absent finding does.
+//
+// A reason is required and is written to notes. Without one the label would be
+// indistinguishable from a target nobody got to, which is the ambiguity this
+// state exists to remove. It refuses rows that hold real work (success,
+// in_progress) and rows that already carry a search finding of present or
+// absent: a confirmed listing contradicts "does not apply", and an absent
+// finding is the stronger record (a search ran and cleared the control bar) that
+// a category judgment must not replace. An undetermined or unchecked row may be
+// resolved by this judgment; any earlier evidence is kept in notes.
+//
+// It does not stamp presence_checked_at, because nothing was searched, and it
+// never sets a completion_method: irrelevance is not a removal.
+func (s *Store) SetNotApplicable(id, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return fmt.Errorf("set not_applicable for %s: a reason is required", id)
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var status, presence string
+	var prior sql.NullString
+	if err := tx.QueryRow(`SELECT status, presence, notes FROM brokers WHERE id = ?`, id).Scan(&status, &presence, &prior); err != nil {
+		return fmt.Errorf("set not_applicable for %s: %w", id, err)
+	}
+	switch {
+	case Status(status) == StatusSuccess || Status(status) == StatusInProgress:
+		return fmt.Errorf("set not_applicable for %s: status is %s, real work is recorded here", id, status)
+	case Presence(presence) == PresencePresent:
+		return fmt.Errorf("set not_applicable for %s: the subject was found listed there", id)
+	case Presence(presence) == PresenceAbsent:
+		return fmt.Errorf("set not_applicable for %s: a search already found it absent, which is the stronger record", id)
+	}
+
+	notes := "not applicable: " + reason
+	if p := strings.TrimSpace(prior.String); p != "" {
+		notes += " | earlier evidence: " + p
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE brokers SET
+			presence   = ?,
+			status     = ?,
+			notes      = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`,
+		string(PresenceNotApplicable), string(StatusSkipped), notes, id,
+	); err != nil {
+		return fmt.Errorf("set not_applicable for %s: %w", id, err)
+	}
+	return tx.Commit()
+}
+
 // SetPrivacyContact records a discovered deletion-request address and the page
 // it came from. The source is stored alongside the address deliberately: an
 // address with no provenance is a guess, and a request sent to a guessed
@@ -832,9 +901,14 @@ func (s *Store) Stats() (map[Status]int, error) {
 
 // Reset sets a broker back to pending (for re-testing). Use carefully.
 func (s *Store) Reset(id string) error {
+	// A not_applicable row keeps its skipped status and its reason: resetting
+	// it to pending would leave a row that says "does not apply" with the
+	// reason wiped, which is the unexplained label SetNotApplicable forbids.
 	_, err := s.db.Exec(`
-		UPDATE brokers SET status='pending', attempt_count=0,
-		last_attempt_at=NULL, confirmation_url=NULL, notes=NULL,
+		UPDATE brokers SET
+		status = CASE WHEN presence = 'not_applicable' THEN status ELSE 'pending' END,
+		notes  = CASE WHEN presence = 'not_applicable' THEN notes  ELSE NULL END,
+		attempt_count=0, last_attempt_at=NULL, confirmation_url=NULL,
 		updated_at=CURRENT_TIMESTAMP WHERE id=?`, id,
 	)
 	return err
