@@ -295,3 +295,17 @@ Checking the three requests the tool has sent, all three went out on 2026-09-23 
 **Still open:**
 - One sent request's recipient address is on a different domain from the broker's site and from the page it was discovered on. It may be the operator that controls the site, or an uninvolved third party, and the data cannot say which. Someone should read the source page before anything further goes to that address.
 - The gate warns on never-checked rows rather than refusing them. That is a judgment call, and `--send` still needs both confirmation flags.
+
+## October 1, 2026 (later still): Strategy 3 re-swept, and two things the probe got wrong
+
+`discover` was re-run over the Strategy 3 targets and found no new contact address; 15 publish none and 3 could not be loaded. Each of those 18 was then probed with the same browser the strategies use. What was found, and what was deliberately not concluded:
+
+- **Parked or for sale:** three sites were classified `dead_site` from what the browser received (a registrar's parked page, a for-sale redirect, and a hosting provider's "Coming Soon" placeholder). One more has DNS but no TLS listener and was left for a later re-check, as were two sites whose origin servers were down behind a CDN (a down origin can be temporary, which a parked domain is not).
+- **Bot-verification wall:** one site shows a "Human Verification" page and was classified `bot_defended`.
+- **No mechanism visible is not no mechanism.** Eight sites loaded normally with no opt-out form on the homepage and no published address. A homepage probe cannot show that a site has no way to opt out, so none was marked `no_mechanism`.
+
+**Probe fixes.** Two misses came out of this and are fixed in `internal/agent/probe.go`:
+- It reported "no block detected" on a human-verification interstitial, because its challenge pattern did not include that wording. It now also matches "confirm you are human", "human verification" and phrases addressed to the visitor such as "you are not a robot".
+- It suggested `bot_defended` for a domain that was simply for sale, because the registrar's for-sale page answered the headless browser with "Access Denied". It now detects known parking and for-sale hosts and parking text, and a parked page outranks every block signal and suggests `dead_site`. This is the same mistake the README warns about: inferring a defence from a failure.
+
+Verification: the browser-side patterns were exercised against local pages, including an ordinary opt-out page containing the sentence "we are not a robot-selling company", which an earlier, looser pattern wrongly flagged. The visitor-addressed pattern was tightened because of it, and an escape slip that would have missed the apostrophe form of "you're" was found the same way.

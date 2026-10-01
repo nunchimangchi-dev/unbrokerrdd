@@ -461,6 +461,7 @@ func main() {
 		fmt.Printf("  final url   %s\n", res.URL)
 		fmt.Printf("  title       %q\n", res.Title)
 		fmt.Printf("  challenge   %v\n", res.Challenge)
+		fmt.Printf("  parked      %v\n", res.Parked)
 		fmt.Printf("  captcha     %v %s\n", res.Captcha, res.CaptchaKind)
 
 		if len(res.Inputs) == 0 {

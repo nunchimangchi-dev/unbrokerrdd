@@ -29,6 +29,7 @@ type ProbeResult struct {
 	URL         string       `json:"url"`
 	Title       string       `json:"title"`
 	Challenge   bool         `json:"challenge"`
+	Parked      bool         `json:"parked"`
 	Captcha     bool         `json:"captcha"`
 	CaptchaKind string       `json:"captchaKind"`
 	Inputs      []ProbeInput `json:"inputs"`
@@ -39,7 +40,12 @@ type ProbeResult struct {
 const probeJS = `(function(){
   var t = document.title || '';
   var bodyText = document.body ? document.body.innerText : '';
-  var challengeRe = /just a moment|attention required|verifying you are human|checking your browser|ddos protection|enable javascript and cookies/i;
+  var challengeRe = /just a moment|attention required|verifying you are human|confirm you are human|human verification|verify (that )?you are (a )?human|you(\x27re| are) not a (bot|robot)|checking your browser|ddos protection|enable javascript and cookies/i;
+  // A parked or for-sale domain is not a site that is defending itself. Its
+  // holding page often answers a headless browser with "Access Denied", which
+  // looks exactly like a bot defence and is not one.
+  var parkedHostRe = /(^|\.)(forsale\.godaddy\.com|sedoparking\.com|parkingcrew\.net|hugedomains\.com|dan\.com|afternic\.com|undeveloped\.com)$/i;
+  var parkedTextRe = /is parked (free|for)|domain (is )?(for sale|parked)|buy this domain|get this domain|this domain may be for sale/i;
   var cap = document.querySelector('.g-recaptcha, iframe[src*="recaptcha"], iframe[src*="turnstile"], iframe[src*="hcaptcha"], [class*="turnstile"]');
   var inputs = Array.prototype.slice.call(document.querySelectorAll('input, textarea, select'), 0, 30).map(function(e){
     var r = e.getBoundingClientRect();
@@ -65,6 +71,7 @@ const probeJS = `(function(){
   return {
     url: location.href, title: t,
     challenge: challengeRe.test(t + ' ' + bodyText.slice(0, 500)),
+    parked: parkedHostRe.test(location.hostname) || parkedTextRe.test(t + ' ' + bodyText.slice(0, 600)),
     captcha: !!cap,
     captchaKind: cap ? String(cap.outerHTML).slice(0, 70) : '',
     inputs: inputs,
@@ -117,6 +124,11 @@ func (r *ProbeResult) SuggestedBlocker() string {
 		return ""
 	}
 	switch {
+	// Parked outranks every block signal: a holding page that refuses a
+	// headless browser is still a holding page, not a defended broker. This
+	// once suggested bot_defended for a domain that was simply for sale.
+	case r.Parked:
+		return "dead_site"
 	case r.Challenge:
 		return "bot_defended"
 	case r.Captcha:

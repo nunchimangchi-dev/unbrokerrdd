@@ -70,6 +70,11 @@ func TestProbe_SuggestedBlocker(t *testing.T) {
 		{"cloudflare challenge", agent.ProbeResult{Title: "Just a moment...", Challenge: true}, "bot_defended"},
 		{"captcha present", agent.ProbeResult{Title: "Opt out", Captcha: true}, "bot_defended"},
 		{"http 403 to automation", agent.ProbeResult{Title: "403 Forbidden"}, "bot_defended"},
+		// A for-sale holding page that answers a headless browser with
+		// "Access Denied" is not a defended broker. This was suggested as
+		// bot_defended for a domain that was simply parked on 2026-10-01.
+		{"parked page that denies access is not a defence", agent.ProbeResult{Title: "Access Denied", Parked: true}, "dead_site"},
+		{"parked outranks a challenge", agent.ProbeResult{Title: "Just a moment...", Challenge: true, Parked: true}, "dead_site"},
 		// A navigation error means we never got a response, so it is not
 		// evidence about the site at all. This case previously asserted
 		// "bot_defended" and that assertion was wrong: a local Chrome launch
