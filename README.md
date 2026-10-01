@@ -6,6 +6,21 @@ An AI-driven data broker opt-out orchestrator. It seeds a queue of real US data 
 
 Built as a genuine attempt at solving a real privacy problem with an AI agent doing the meaningful decision-making — not a script with an LLM bolted on.
 
+## Why it exists
+
+I wanted my own data off the data-broker sites, and expected that to be simple. It wasn't. The effort only became visible as the tool was built: sites that block automated browsers, dead or seized domains, opt-outs that first require finding your own listing, and confirmation emails that say nothing about whether anything was removed.
+
+The project was not built to demonstrate that difficulty. It became a record of it, and it made me think about how hard this must be for someone working through these sites by hand.
+
+That is one person's experience, and it should be read as such. The tool deliberately does not try to defeat CAPTCHAs or bot detection, so part of what it found difficult is a choice. Where automation is blocked it routes the task to a human and records that it did.
+
+## What this can and can't establish
+
+- **A completed request is not a confirmed removal.** Broker confirmation emails do not report the state of the removal, and the Gmail grant is compose-only, so the tool cannot read replies. The database records that a request was made, and by whom, not that a listing came down.
+- **"Not listed" cannot be attributed.** Commercial removal services were used before this tool ran, so a later "absent" finding may mean the subject was never listed, was removed by one of those services, or was removed by this tool. There is no baseline from before.
+- **Autonomous completion has not been demonstrated.** `completion_method` is `autonomous` only after an unattended live run. `databrokergo status` shows the current split.
+- **It is one subject on one machine.** Nothing here is a general measure of how the data-broker ecosystem behaves.
+
 ## About this commit history
 
 The history here is intentionally unredacted. It records the bugs as well as
@@ -52,9 +67,18 @@ never takes a screenshot or calls the API.
 
 ## Current state
 
+This section describes build state only. For counts, and for what has actually been completed and by whom, run `databrokergo status`. `CLAUDE.md` has the per-strategy table, and `HANDOFF.md` records what was tried and what blocked it.
+
 **Working today:**
 - Full broker registry — real US data brokers categorized into 6 opt-out strategy types, seeded into SQLite (`databrokergo status` for the live count and completion breakdown).
-- Strategy 1 (TruthFinder affiliate cascade) — fully implemented and tested against the real site. One suppression request at `suppression.peopleconnect.us` (PeopleConnect's shared portal, not `truthfinder.com/privacy-center`'s account-deletion tool — that one doesn't suppress your public listing, corrected 2026-09-17, see `HANDOFF.md`) covers 7 affiliated broker properties; Claude Haiku (vision) validates the outcome from a post-submit screenshot.
+- Strategy 1 (PeopleConnect suppression portal) — built. One request at `suppression.peopleconnect.us` (PeopleConnect's shared portal, not `truthfinder.com/privacy-center`'s account-deletion tool — that one doesn't suppress your public listing, corrected 2026-09-17, see `HANDOFF.md`) is intended to cover the affiliated brokers. That cascade has not been independently verified. Claude Haiku (vision) validates the outcome from a post-submit screenshot.
+- Strategy 3 (privacy-page discovery and CCPA email) — built. `discover` finds a published contact address and `email` drafts a deletion request. Drafting is the default and sending needs two flags. See `GMAIL.md`.
+- Presence checks — a search only counts once it has passed a two-sided control experiment (`PRESENCE.md`).
+- Orchestrator with QA-gated batch execution, SQLite-backed state (`pending → in_progress → success/failed/skipped/manual`), a 48h cooldown, and a CLI for running, classifying and inspecting targets.
+- Real-time dashboard (Go HTTP + WebSocket server on `:8080`) with a dark, neon aesthetic and a subtle Three.js background effect.
+
+**Retired:**
+- Strategy 5 (WHOIS phone directories) is obsolete: registrars now redact the registrant contact the strategy depended on. The evidence is recorded in code and printed by `status`.
 - Orchestrator with QA-gated batch execution, SQLite-backed state (`pending → in_progress → success/failed/skipped/manual`), and a CLI (`serve`, `run`, `status`, `reset`).
 - Real-time dashboard (Go HTTP + WebSocket server on `:8080`) with a dark, neon aesthetic and a subtle Three.js background effect.
 
@@ -62,8 +86,7 @@ never takes a screenshot or calls the API.
 - Strategy 2 (hidden opt-out forms) has two verified, working sites — CheckPeople (2026-09-17) and AdvancedBackgroundChecks (2026-09-18). Every other Strategy 2 broker is deliberately routed to a manual status rather than automated with unverified selectors. A live sweep of the rest of the BADBOOL manual list (2026-09-18) found real, varied blockers: FamilyTreeNow, Clustal, and Nuwber sit behind bot-check interstitials that either got chromedp visibly stuck (`FamilyTreeNow`) or explicitly require reCAPTCHA (`Nuwber`); Spokeo, Clustal, BeenVerified, and SmartBackgroundChecks require the human to find and paste their own listing's URL first (a correctness requirement, not a missing feature — auto-selecting "which search result is you" risks opting out a stranger's data); That's Them needs a street address and phone number the tool deliberately doesn't collect. One piece of good news found along the way: Radaris.com was seized by New Jersey court order in August 2026 over Daniel's Law violations and no longer operates as a people-search site at all — nothing to opt out of there anymore.
 
 **Planned, not yet built:**
-- Strategies 3–6 (privacy-page email discovery, business directory checks, WHOIS-based phone directory removal, and profile-broker account deletion) — the broker registry already has all sites categorized into these buckets, but no execution agent exists yet. See `CLAUDE.md` for the per-strategy breakdown and status.
-- Gmail integration for the CCPA email-based strategies (3 and 5) — needs real Gmail API (OAuth2) access; not implemented.
+- Strategy 4 (business directory checks) and Strategy 6 (profile-broker account deletion). Both are seeded in the registry with no execution agent, and Strategy 6's targets turned out to be largely different from what the registry assumed. See `CLAUDE.md` for the per-strategy breakdown.
 
 ## Components
 
