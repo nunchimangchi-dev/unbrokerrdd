@@ -20,6 +20,7 @@ That is one person's experience, and it should be read as such. The tool deliber
 - **"Not listed" cannot be attributed.** Commercial removal services were used before this tool ran, so a later "absent" finding may mean the subject was never listed, was removed by one of those services, or was removed by this tool. There is no baseline from before.
 - **Autonomous completion has not been demonstrated.** `completion_method` is `autonomous` only after an unattended live run. `databrokergo status` shows the current split.
 - **It is one subject on one machine.** Nothing here is a general measure of how the data-broker ecosystem behaves.
+- **Some targets were set aside as irrelevant.** A `not_applicable` presence value records a site whose category cannot apply to the subject, with a reason. It is a judgment, not a search result, and is reported separately from `absent`.
 
 ## About this commit history
 

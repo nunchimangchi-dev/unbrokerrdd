@@ -275,3 +275,13 @@ Same-looking site, different real outcome under actual automation — confirmed 
 
 
 
+
+## October 1, 2026: a not-applicable state, an access-control finding, and a roadmap note
+
+**`not_applicable` presence value.** Many targets were pending because their category cannot apply to the subject, not because nobody got to them, and the database had no way to say so. `databrokergo not-applicable --broker X --reason "..."` now records it: the row moves to `skipped`, the reason is stored in notes and is required, and it is refused on a row that holds real work or a confirmed listing. It is not `absent` (a search ran and found nothing, which must clear the control-experiment bar in `PRESENCE.md`) and it never stamps `presence_checked_at` or a completion method. Strategy 5's pending rows are deliberately not marked this way: they are un-actionable under an obsolete strategy, not irrelevant. `go build`, `go vet` and `go test` pass, including four new tests for this state.
+
+**Dashboard access control, found by checking the deployment instead of the design.** The dashboard trusts the plain `Cf-Access-Authenticated-User-Email` header. Cloudflare Access does enforce on the public hostname, but the app was also reachable directly from several internal networks with Access out of the path, where a request carrying an admin's email would be treated as that admin. Network containment was applied outside this repo so the app now accepts connections only from the tunnel host and monitoring. **Still open:** the real fix is to validate the signed `Cf-Access-Jwt-Assertion` token (signature plus audience) in `identityMiddleware`, because anything on the two permitted hosts could still send a forged header. Until that is done, describe the design as "roles come from Cloudflare Access identity", not as cryptographically verified.
+
+**Roadmap, not built: triage in the dashboard.** If this were a tool for others, hand-marking rows would be the wrong model. Each registry entry would carry a category tag (court records, business registry, credential or visa, document host, and so on); the user would answer a short profile; and `not_applicable` would be derived from the tags with a generated reason. Two constraints: reasons must come from a fixed set, because notes deliberately never leave the box over HTTP and the profile answers would have to stay write-only; and the write endpoints are admin-only, so the JWT validation above has to land first.
+
+**What the project can and cannot establish** is now in the README. In short: a completed request is not a confirmed removal, "not listed" cannot be attributed after earlier removal services, and autonomous completion has not been demonstrated.

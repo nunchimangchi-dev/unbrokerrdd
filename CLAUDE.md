@@ -174,8 +174,17 @@ presence           → is the subject ON this site at all:
   present            a matching result is listed - removal work is warranted
   absent             the search ran cleanly and found nothing to remove
   undetermined       the check could not be trusted either way
+  not_applicable     the site's category cannot apply to the subject; a human
+                     judgment, not a search, and a reason is required
+                     (`databrokergo not-applicable --broker X --reason "..."`)
   (empty)            never checked
 ```
+
+`not_applicable` is not `absent`. Absent means a search ran cleanly and found
+nothing, and has to clear the control-experiment bar in `PRESENCE.md`.
+Not-applicable means nobody needed to search, and it is refused on a row that
+holds real work or a confirmed listing. It exists so a target set aside as
+irrelevant is distinguishable from one nobody got to.
 
 `presence` is a third, independent axis, and it is deliberately not part of the
 scoreboard. A site the subject was never listed on is not a removal and must
