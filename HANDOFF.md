@@ -285,3 +285,13 @@ Same-looking site, different real outcome under actual automation — confirmed 
 **Roadmap, not built: triage in the dashboard.** If this were a tool for others, hand-marking rows would be the wrong model. Each registry entry would carry a category tag (court records, business registry, credential or visa, document host, and so on); the user would answer a short profile; and `not_applicable` would be derived from the tags with a generated reason. Two constraints: reasons must come from a fixed set, because notes deliberately never leave the box over HTTP and the profile answers would have to stay write-only; and the write endpoints are admin-only, so the JWT validation above has to land first.
 
 **What the project can and cannot establish** is now in the README. In short: a completed request is not a confirmed removal, "not listed" cannot be attributed after earlier removal services, and autonomous completion has not been demonstrated.
+
+## October 1, 2026 (later): the email path ignored presence, and the first requests went out blind
+
+Checking the three requests the tool has sent, all three went out on 2026-09-23 before any presence check had run for those sites. One of them was later found to hold no record of the subject at all, so a deletion request went to a company that had nothing to delete and was given the subject's name and email in the process. Nothing is harmed in practice and nothing can be recalled, but the cause was real: the email command did not look at presence.
+
+**Fixed:** `internal/email/gate.go`. `PresenceGate` refuses `absent` and `not_applicable` rows, warns on never-checked and `undetermined` rows, and warns (never allows) on a presence value it does not recognise. It runs before `--limit`, and it applies to a broker named with `--broker`, so it cannot be bypassed that way. The default sweep also skips contacts whose source is tagged `whois-proxy:` — a privacy-proxy forwarder is not a privacy desk, and the three rows it would otherwise have drafted to were exactly those. Both rules have tests, and both were checked against the real database with `email --preview`.
+
+**Still open:**
+- One sent request's recipient address is on a different domain from the broker's site and from the page it was discovered on. It may be the operator that controls the site, or an uninvolved third party, and the data cannot say which. Someone should read the source page before anything further goes to that address.
+- The gate warns on never-checked rows rather than refusing them. That is a judgment call, and `--send` still needs both confirmation flags.

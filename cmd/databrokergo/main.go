@@ -1007,6 +1007,7 @@ func main() {
 		}
 
 		var targets []db.Broker
+		var proxySkipped int
 		for _, b := range all {
 			if args["broker"] != "" {
 				if b.ID == args["broker"] {
@@ -1021,6 +1022,12 @@ func main() {
 				b.Status == db.StatusSuccess || b.BlockerType == db.BlockerDeadSite {
 				continue
 			}
+			// A WHOIS privacy-proxy forwarder is not a company's privacy desk.
+			// The sweep leaves these alone; --broker can still target one.
+			if email.IsProxyContact(b.PrivacyEmailSource) {
+				proxySkipped++
+				continue
+			}
 			// In draft mode, skip anything already drafted. In send mode,
 			// those are exactly the targets - the drafts waiting to go.
 			if !doSend && b.DraftedAt != nil {
@@ -1028,8 +1035,35 @@ func main() {
 			}
 			targets = append(targets, b)
 		}
+		// Presence gate. Applied to explicit --broker targets as well as swept
+		// ones, so naming a broker cannot bypass it, and before --limit so a
+		// refused row never uses up a slot meant for a real one.
+		var gated []db.Broker
+		var refused, blind int
+		for _, b := range targets {
+			verdict, why := email.PresenceGate(string(b.Presence))
+			switch verdict {
+			case email.Refuse:
+				refused++
+				fmt.Printf("  skipping %-24s %s\n", b.ID, why)
+				continue
+			case email.Warn:
+				blind++
+				fmt.Printf("  warning  %-24s %s\n", b.ID, why)
+			}
+			gated = append(gated, b)
+		}
+		targets = gated
+		if refused > 0 || blind > 0 {
+			fmt.Printf("\n  %d skipped by the presence gate, %d to be made without a confirmed listing\n\n", refused, blind)
+		}
+
 		if n, convErr := strconv.Atoi(args["limit"]); convErr == nil && n < len(targets) {
 			targets = targets[:n]
+		}
+		if proxySkipped > 0 {
+			fmt.Printf("  %d address(es) skipped: they came from WHOIS privacy-proxy forwarders, not a privacy desk.\n", proxySkipped)
+			fmt.Println("  Name one with --broker if you decide a request there is worth sending.")
 		}
 		if len(targets) == 0 {
 			if doSend {
